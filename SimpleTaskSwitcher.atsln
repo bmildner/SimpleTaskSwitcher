@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Atmel Studio Solution File, Format Version 11.00
+VisualStudioVersion = 14.0.23107.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "SimpleTaskSwitcher", "SimpleTaskSwitcher\SimpleTaskSwitcher.cproj", "{72D117D9-B3A7-489F-886B-96D0AF708B4E}"
+EndProject
+Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "Test", "Test\Test.cproj", "{CFBA8B6D-092F-4A0A-B052-D4F3650890AA}"
+	ProjectSection(ProjectDependencies) = postProject
+		{72D117D9-B3A7-489F-886B-96D0AF708B4E} = {72D117D9-B3A7-489F-886B-96D0AF708B4E}
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|AVR = Debug|AVR
+		Release|AVR = Release|AVR
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{72D117D9-B3A7-489F-886B-96D0AF708B4E}.Debug|AVR.ActiveCfg = Debug|AVR
+		{72D117D9-B3A7-489F-886B-96D0AF708B4E}.Debug|AVR.Build.0 = Debug|AVR
+		{72D117D9-B3A7-489F-886B-96D0AF708B4E}.Release|AVR.ActiveCfg = Release|AVR
+		{72D117D9-B3A7-489F-886B-96D0AF708B4E}.Release|AVR.Build.0 = Release|AVR
+		{CFBA8B6D-092F-4A0A-B052-D4F3650890AA}.Debug|AVR.ActiveCfg = Debug|AVR
+		{CFBA8B6D-092F-4A0A-B052-D4F3650890AA}.Debug|AVR.Build.0 = Debug|AVR
+		{CFBA8B6D-092F-4A0A-B052-D4F3650890AA}.Release|AVR.ActiveCfg = Release|AVR
+		{CFBA8B6D-092F-4A0A-B052-D4F3650890AA}.Release|AVR.Build.0 = Release|AVR
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
