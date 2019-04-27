@@ -60,6 +60,7 @@ static inline void ResetPreemptiveSwitchTimer()
     if (bit_is_set(TIFR2, OCF2B))
     {
       TIFR2 |= (1 << OCF2B);  // This will only generate valid code IF TIFR2 is in the lower I/O register range!!!
+      //TIFR2 = (1 << OCF2B);
     }
 }
 
