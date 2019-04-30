@@ -166,7 +166,7 @@ void SwitcherImpl()
                 "clr __zero_reg__          \n\t"  // clear zero reg
                 :: [swrStack] "i"(g_SwitcherStackData + (sizeof(g_SwitcherStackData) - 1)));
 
-                // save and clear extension registers RAMPX, RAMPY, RAMPD and EIND if present
+                // save and clear extension registers RAMPX, RAMPZ, RAMPD and EIND if present
 #ifdef RAMPX
   asm volatile ("in r0,%[rampx]             \n\t"
                 "st -y,r0                   \n\t"
@@ -205,7 +205,7 @@ void SwitcherImpl()
 #endif                
                 "call SwitcherImplCore  \n\t"  // call SwitcherImplCore
                 
-                "cp r28,r22             \n\t"  // check if old and now stack pointer are equal
+                "cp r28,r22             \n\t"  // check if old and new stack pointer are equal
                 "cpc r29,r23            \n\t"
                 "breq skipfullswitch    \n\t"
                 
@@ -234,8 +234,6 @@ void SwitcherImpl()
                 "mov r28,r24            \n\t"
                 "mov r29,r25            \n\t"
 #endif
-      
-                "adiw r28,1             \n\t"  // increment SP by one
                 
                 // restore full switch only registers
                 "ld r2,y+               \n\t"
@@ -284,23 +282,23 @@ void SwitcherImpl()
 #endif
 
                 // restore bulk of registers
-  asm volatile ("ld r0,y+  \n\t"
-                "ld r1,y+  \n\t"                
-                "ld r18,y+ \n\t"  // r17 is restored later
-                "ld r19,y+ \n\t"
-                "ld r20,y+ \n\t"
-                "ld r21,y+ \n\t"
-                "ld r22,y+ \n\t"
-                "ld r23,y+ \n\t"
-                "ld r24,y+ \n\t"
-                "ld r25,y+ \n\t"
-                "ld r26,y+ \n\t"
-                "ld r27,y  \n\t"
+  asm volatile ("ld r0,y+           \n\t"
+                "ld r1,y+           \n\t"                
+                "ld r18,y+          \n\t"  // r17 is restored later
+                "ld r19,y+          \n\t"
+                "ld r20,y+          \n\t"
+                "ld r21,y+          \n\t"
+                "ld r22,y+          \n\t"
+                "ld r23,y+          \n\t"
+                "ld r24,y+          \n\t"
+                "ld r25,y+          \n\t"
+                "ld r26,y+          \n\t"
+                "ld r27,y           \n\t"
 
-                "cli       \n\t"  // disable interrupts
+                "cli                \n\t"  // disable interrupts
                 
-                "out __SP_H__,r29 \n\t"  // load stack pointer from Y into SP
-                "out __SP_L__,r28 \n\t"
+                "out __SP_H__,r29   \n\t"  // load stack pointer from Y into SP
+                "out __SP_L__,r28   \n\t"
                 );
                 
                 SWITCHER_ASM_ENABLE_SWITCHING_IRQS();  // re-enable switcher IRQs
@@ -313,20 +311,20 @@ void SwitcherImpl()
                 );                
 #endif
 
-  asm volatile ("pop r28            \n\t"
+  asm volatile ("pop r28            \n\t"  // restore Y
                 "pop r29            \n\t"
 
                 "pop r31            \n\t"  // SREG in r31, SREG_I is 0!
                 
-                "pop r30            \n\t"
+                "pop r30            \n\t"  // restore R30
                 
                 "cpi r17,%[yielded] \n\t"  // check if source is Yielded
                 "brne reti_return   \n\t"  // branch to reti return if not
 
                 "out __SREG__,r31   \n\t"  // restore SREG
                 
-                "pop r31            \n\t"
-                "pop r17            \n\t"
+                "pop r31            \n\t"  // restore R31
+                "pop r17            \n\t"  // restore R17
                 
                 "sei                \n\t"  // we always return with interrupts enabled!
                 
@@ -336,14 +334,16 @@ void SwitcherImpl()
                 
                 "out __SREG__,r31   \n\t"  // restore SREG
                 
-                "pop r31            \n\t"
-                "pop r17            \n\t"
+                "pop r31            \n\t"  // restore R31
+                "pop r17            \n\t"  // restore R17
                                 
                 "reti"
                 :: [yielded] "i"(Yielded));
 }
 
-// <stackPointer> is 16 bytes off for full state switch!!
+// <stackPointer> is 16 bytes off for full state switch, 
+// however we always store the SP pointing to the last saved byte not the first free slot!
+// this avoids incrementing and/or decrementing the SP during saving and restoring registers
 SwitcherResult SwitcherImplCore(SwitchingSource source, void* stackPointer)
 {
   SwitcherResult result = {.m_NewSP = stackPointer, .m_PreviousTask = NULL};  
@@ -359,7 +359,8 @@ SwitcherResult SwitcherImplCore(SwitchingSource source, void* stackPointer)
     
     // TODO: ...
     
-    //stackPointer -= 16;  // fix up SP for only partial saving register if switching tasks!
+    // fix up SP for only partial saving register if switching tasks!
+    //stackPointer -= 15;  // we always store the SP pointing to the first used slot, not the first free slot!
   }
 
   // TODO: check for pending switch IRQs, run them now to avoid unnecessary exit and re-entry of SwitherImpl
