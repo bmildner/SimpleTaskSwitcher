@@ -17,7 +17,15 @@
 
 #define SWITCHER_STACK_SIZE 32
 
-typedef enum {Yielded = 0, PreemptiveSwitch, ForcedSwitch} SwitchingSource;
+typedef enum {Yielded = 0, PreemptiveSwitch, ForcedSwitch, SwitcherTick} SwitchingSource;
+
+typedef struct  
+{
+  void* m_NewSP;         // new stack pointer after switch, may be same as current
+  
+  Task* m_PreviousTask;  // pointer to task struct of previous task, may be same as current task
+} SwitcherResult;
+
 
 static TickCount g_TickCount;
 
@@ -41,10 +49,11 @@ static void SwitcherImpl();
 // Task switcher core implementation in C
 //   Takes switching source and SP of current task, returns SP of new task
 __attribute__((noinline, used))
-static void* SwitcherImplCore(SwitchingSource source, void* stackPointer);
+static SwitcherResult SwitcherImplCore(SwitchingSource source, void* stackPointer);
 
-__attribute__((noinline, used))
-static void SwitcherTickCore();
+// Handles monotone switch tick, called from SwitchImplCore
+__attribute__((always_inline, used))
+static inline Task* SwitcherTickCore();
 
 
 // Common asm code every switcher entry function (Yield and ISRs) starts with
@@ -69,6 +78,11 @@ ISR(SWITCHER_PREEMPTIVE_SWITCH_VECTOR, ISR_NAKED)
   SwitcherEntryImpl(PreemptiveSwitch);
 }
 
+ISR(SWITCHER_TICK_VECTOR, ISR_NAKED)
+{
+  SwitcherEntryImpl(SwitcherTick);
+}
+
 void YieldImpl()
 {
   cli();
@@ -77,17 +91,26 @@ void YieldImpl()
 
 /*
   Layout of full task state on the tasks stack in oder of saving:
-    R17
-    R31 ... R30
+    R17            (source)    
+    R31 ... R30    (scratch and load switcher SP)
     SREG
-    R29 ... R28
-    (RAMPZ)
-    R27 ... R18
-    R16 ... R0
-    (RAMPX)
+    R29 ... R28    (scratch and SP)
+    [disable switcher IRQs]
     (RAMPY)
+    [--- switch stack]
+    R27 ... R18
+    R1..R0
+    (RAMPX)
+    (RAMPZ)
     (RAMPD)
     (EIND)
+
+    [call SwitcherImplCore]
+    
+  Only saved when actually switching to other task:
+    R16 ... R2
+    
+    [call SwitcherStackCheck]
 */
 
 // expects:
@@ -108,202 +131,200 @@ void SwitcherImpl()
 
   SWITCHER_ASM_DISABLE_SWITCHING_IRQS();
 
-#ifdef RAMPZ  // if present save RAMPZ and clear it before using Z, uses r28
-  asm volatile ("in r28,%[rampz]  \n\t"
-                "push r28         \n\t"
-                "clr r28          \n\t"
-                "out %[rampz],r28"
-                :: [rampz] "I"(_SFR_IO_ADDR(RAMPZ)));
+#ifdef RAMPY  // if present save RAMPY and clear it before using Y, uses r31
+  asm volatile ("in r31,%[rampy]  \n\t"
+                "push r31         \n\t"
+                "clr r31          \n\t"
+                "out %[rampy],r31"
+                :: [rampy] "I"(_SFR_IO_ADDR(RAMPY)));
 #endif
 
-  asm volatile ("in r30,__SP_L__           \n\t"  // load SP into Z
-                "in r31,__SP_H__           \n\t"
+  asm volatile ("in r28,__SP_L__           \n\t"  // load SP into Y
+                "in r29,__SP_H__           \n\t"
 
-                "ldi r29, hi8(%[swrStack]) \n\t"  // load switcher stack address in Y
-                "ldi r28, lo8(%[swrStack]) \n\t"
+                "ldi r31, hi8(%[swrStack]) \n\t"  // load switcher stack address in Z
+                "ldi r30, lo8(%[swrStack]) \n\t"
 
-                "out __SP_H__,r29          \n\t"  // store switcher stack address from Y to SP and ...
+                "out __SP_H__,r31          \n\t"  // store switcher stack address from Z to SP and ...
                 "sei                       \n\t"  // ... enable interrupts
-                "out __SP_L__,r28          \n\t"
-
-                "adiw r30,1                \n\t"  // increment SP in Z by one, we only have pre-decremnt store
+                "out __SP_L__,r30          \n\t"
                 
                 // save rest of registers
-                "st -z,r27                 \n\t"
-                "st -z,r26                 \n\t"
-                "st -z,r25                 \n\t"
-                "st -z,r24                 \n\t"
-                "st -z,r23                 \n\t"                
-                "st -z,r22                 \n\t"
-                "st -z,r21                 \n\t"
-                "st -z,r20                 \n\t"
-                "st -z,r19                 \n\t"
-                "st -z,r18                 \n\t"
-                "st -z,r16                 \n\t"  // r17 already saved
-                "st -z,r15                 \n\t"
-                "st -z,r14                 \n\t"
-                "st -z,r13                 \n\t"
-                "st -z,r12                 \n\t"
-                "st -z,r11                 \n\t"
-                "st -z,r10                 \n\t"
-                "st -z,r9                  \n\t"
-                "st -z,r8                  \n\t"
-                "st -z,r7                  \n\t"
-                "st -z,r6                  \n\t"
-                "st -z,r5                  \n\t"
-                "st -z,r4                  \n\t"
-                "st -z,r3                  \n\t"
-                "st -z,r2                  \n\t"
-                "st -z,r1                  \n\t"
-                "st -z,r0                  \n\t"
+                "st y,r27                  \n\t"
+                "st -y,r26                 \n\t"
+                "st -y,r25                 \n\t"
+                "st -y,r24                 \n\t"
+                "st -y,r23                 \n\t"                
+                "st -y,r22                 \n\t"
+                "st -y,r21                 \n\t"
+                "st -y,r20                 \n\t"
+                "st -y,r19                 \n\t"
+                "st -y,r18                 \n\t"                
+                "st -y,r1                  \n\t"
+                "st -y,r0                  \n\t"
 
                 "clr __zero_reg__          \n\t"  // clear zero reg
                 :: [swrStack] "i"(g_SwitcherStackData + (sizeof(g_SwitcherStackData) - 1)));
 
-                // save and clear extension registers RAMPX, RAMPY, RAMPD and EIND if present
+                // save and clear extension registers RAMPX, RAMPZ, RAMPD and EIND if present
 #ifdef RAMPX
   asm volatile ("in r0,%[rampx]             \n\t"
-                "st -z,r0                   \n\t"
+                "st -y,r0                   \n\t"
                 "out %[rampx], __zero_reg__"
                 :: [rampx] "I"(_SFR_IO_ADDR(RAMPX)));
 #endif
 
-#ifdef RAMPY
-  asm volatile ("in r0,%[rampy]             \n\t"
-                "st -z,r0                   \n\t"
-                "out %[rampy], __zero_reg__"
-                :: [rampy] "I"(_SFR_IO_ADDR(RAMPY)));
+#ifdef RAMPZ
+  asm volatile ("in r0,%[rampz]             \n\t"
+                "st -y,r0                   \n\t"
+                "out %[rampz], __zero_reg__"
+                :: [rampz] "I"(_SFR_IO_ADDR(RAMPZ)));
 #endif
 
 #ifdef RAMPD
   asm volatile ("in r0,%[rampd] \n\t"
-                "st -z,r0       \n\t"
-              "out %[rampd], __zero_reg__"
+                "st -y,r0       \n\t"
+                "out %[rampd], __zero_reg__"
                 :: [rampd] "I"(_SFR_IO_ADDR(RAMPD)));
 #endif
 
 #ifdef EIND
   asm volatile ("in r0,%[eind] \n\t"
-                "st -z,r0      \n\t"
-              "out %[eind], __zero_reg__"
+                "st -y,r0      \n\t"
+                "out %[eind], __zero_reg__"
                 :: [eind] "I"(_SFR_IO_ADDR(EIND)));
 #endif
 
-  asm volatile ("sbiw r30,1             \n\t"  // decrement SP in Z by one
-                
-                "mov r24,r17            \n\t"  // setup parameters for SwitcherImplCore, source in r24 ...
+  asm volatile ("mov r24,r17            \n\t"  // setup parameters for SwitcherImplCore, source in r24 ...
                 
 #ifdef  __AVR_HAVE_MOVW__
-                "movw r22,r30           \n\t"  // ... current task's stack pointer in r22/r23
+                "movw r22,r28           \n\t"  // ... current task's stack pointer in r22/r23
 #else
-                "mov r22,r30            \n\t"
-                "mov r23,r31            \n\t"
+                "mov r22,r28            \n\t"
+                "mov r23,r29            \n\t"
 #endif                
                 "call SwitcherImplCore  \n\t"  // call SwitcherImplCore
                 
-// TODO: implement partial task switch for (current task) == (next task), only save ABI releveant registers
-//       unify with implementation of SWITCHER_TICK_VECTOR !
-#if 0                
-                "cp r28,r24             \n\t"  // check if old and now stack pointer are equal
-                "cpc r29,r25            \n\t"
+                "cp r28,r22             \n\t"  // check if old and new stack pointer are equal
+                "cpc r29,r23            \n\t"
                 "breq skipfullswitch    \n\t"
                 
-                "skipfullswitch:        \n\t"
-#endif                
-                
-#ifdef  __AVR_HAVE_MOVW__                
-                "movw r30,r24           \n\t"  // move returned new stack pointer into Z
+                // save remaining registers
+                "st -y,r16              \n\t"  // r17 already saved
+                "st -y,r15              \n\t"
+                "st -y,r14              \n\t"
+                "st -y,r13              \n\t"
+                "st -y,r12              \n\t"
+                "st -y,r11              \n\t"
+                "st -y,r10              \n\t"
+                "st -y,r9               \n\t"
+                "st -y,r8               \n\t"
+                "st -y,r7               \n\t"
+                "st -y,r6               \n\t"
+                "st -y,r5               \n\t"
+                "st -y,r4               \n\t"
+                "st -y,r3               \n\t"
+                "st -y,r2               \n\t"
+
+                // TODO: call SwitcherStackCheck if stack check is enabled!
+                 
+#ifdef  __AVR_HAVE_MOVW__
+                "movw r28,r24           \n\t"  // move returned new stack pointer into Y
 #else
-                "mov r30,r24            \n\t"
-                "mov r31,r25            \n\t"
+                "mov r28,r24            \n\t"
+                "mov r29,r25            \n\t"
 #endif
                 
-                "adiw r30,1             \n\t"  // increment SP in Z by one
+                // restore full switch only registers
+                "ld r2,y+               \n\t"
+                "ld r3,y+               \n\t"
+                "ld r4,y+               \n\t"
+                "ld r5,y+               \n\t"
+                "ld r6,y+               \n\t"
+                "ld r7,y+               \n\t"
+                "ld r8,y+               \n\t"
+                "ld r9,y+               \n\t"
+                "ld r10,y+              \n\t"
+                "ld r11,y+              \n\t"
+                "ld r12,y+              \n\t"
+                "ld r13,y+              \n\t"
+                "ld r14,y+              \n\t"
+                "ld r15,y+              \n\t"
+                "ld r16,y+              \n\t"
+                
+                "skipfullswitch:        \n\t"
+
                 );
                 
                 // restore extension registers if present
 #ifdef EIND
-  asm volatile ("ld r0,z+ \n\t"
+  asm volatile ("ld r0,y+ \n\t"
                 "out %[eind],r0"
                 :: [eind] "I"(_SFR_IO_ADDR(EIND)));
 #endif
 
 #ifdef RAMPD
-  asm volatile ("ld r0,z+ \n\t"
+  asm volatile ("ld r0,y+ \n\t"
                 "out %[rampd],r0"
                 :: [rampd] "I"(_SFR_IO_ADDR(RAMPD)));
 #endif
 
-#ifdef RAMPY
-  asm volatile ("ld r0,z+ \n\t"
-                "out %[rampy],r0"
-                :: [rampy] "I"(_SFR_IO_ADDR(RAMPY)));
+#ifdef RAMPZ
+  asm volatile ("ld r0,y+ \n\t"
+                "out %[rampz],r0"
+                :: [rampz] "I"(_SFR_IO_ADDR(RAMPZ)));
 #endif
 
 #ifdef RAMPX
-  asm volatile ("ld r0,z+ \n\t"
+  asm volatile ("ld r0,y+ \n\t"
                 "out %[rampx],r0"
                 :: [rampx] "I"(_SFR_IO_ADDR(RAMPX)));
 #endif
 
                 // restore bulk of registers
-  asm volatile ("ld r0,z+  \n\t"
-                "ld r1,z+  \n\t"
-                "ld r2,z+  \n\t"
-                "ld r3,z+  \n\t"
-                "ld r4,z+  \n\t"
-                "ld r5,z+  \n\t"
-                "ld r6,z+  \n\t"
-                "ld r7,z+  \n\t"
-                "ld r8,z+  \n\t"
-                "ld r9,z+  \n\t"
-                "ld r10,z+ \n\t"
-                "ld r11,z+ \n\t"
-                "ld r12,z+ \n\t"
-                "ld r13,z+ \n\t"
-                "ld r14,z+ \n\t"
-                "ld r15,z+ \n\t"
-                "ld r16,z+ \n\t"
-                "ld r18,z+ \n\t"  // r17 is restored later
-                "ld r19,z+ \n\t"
-                "ld r20,z+ \n\t"
-                "ld r21,z+ \n\t"
-                "ld r22,z+ \n\t"
-                "ld r23,z+ \n\t"
-                "ld r24,z+ \n\t"
-                "ld r25,z+ \n\t"
-                "ld r26,z+ \n\t"
-                "ld r27,z+ \n\t"
-                "ld r28,z+ \n\t"
-                "ld r29,z  \n\t"
+  asm volatile ("ld r0,y+           \n\t"
+                "ld r1,y+           \n\t"                
+                "ld r18,y+          \n\t"  // r17 is restored later
+                "ld r19,y+          \n\t"
+                "ld r20,y+          \n\t"
+                "ld r21,y+          \n\t"
+                "ld r22,y+          \n\t"
+                "ld r23,y+          \n\t"
+                "ld r24,y+          \n\t"
+                "ld r25,y+          \n\t"
+                "ld r26,y+          \n\t"
+                "ld r27,y           \n\t"
 
-                "cli       \n\t"  // disable interrupts
+                "cli                \n\t"  // disable interrupts
                 
-                "out __SP_H__,r31 \n\t"  // load stack pointer from Z into SP
-                "out __SP_L__,r30 \n\t"
+                "out __SP_H__,r29   \n\t"  // load stack pointer from Y into SP
+                "out __SP_L__,r28   \n\t"
                 );
                 
                 SWITCHER_ASM_ENABLE_SWITCHING_IRQS();  // re-enable switcher IRQs
 
-#ifdef RAMPZ
-  asm volatile (// restore RAMPZ
+#ifdef RAMPY
+  asm volatile (// restore RAMPY
                 "pop r30 \n\t"
-                "out %[rampz],r30"
-                :: [rampz] "I"(_SFR_IO_ADDR(RAMPZ)))
+                "out %[rampy],r30"
+                :: [rampy] "I"(_SFR_IO_ADDR(RAMPY)))
                 );                
 #endif
 
-  asm volatile ("pop r31            \n\t"  // SREG in r31, SREG_I is 0!
+  asm volatile ("pop r28            \n\t"  // restore Y
+                "pop r29            \n\t"
+
+                "pop r31            \n\t"  // SREG in r31, SREG_I is 0!
                 
-                "pop r30            \n\t"
+                "pop r30            \n\t"  // restore R30
                 
                 "cpi r17,%[yielded] \n\t"  // check if source is Yielded
                 "brne reti_return   \n\t"  // branch to reti return if not
 
                 "out __SREG__,r31   \n\t"  // restore SREG
                 
-                "pop r31            \n\t"
-                "pop r17            \n\t"
+                "pop r31            \n\t"  // restore R31
+                "pop r17            \n\t"  // restore R17
                 
                 "sei                \n\t"  // we always return with interrupts enabled!
                 
@@ -313,190 +334,46 @@ void SwitcherImpl()
                 
                 "out __SREG__,r31   \n\t"  // restore SREG
                 
-                "pop r31            \n\t"
-                "pop r17            \n\t"
+                "pop r31            \n\t"  // restore R31
+                "pop r17            \n\t"  // restore R17
                                 
                 "reti"
                 :: [yielded] "i"(Yielded));
 }
 
-void* SwitcherImplCore(SwitchingSource source, void* stackPointer)
+// <stackPointer> is 16 bytes off for full state switch, 
+// however we always store the SP pointing to the last saved byte not the first free slot!
+// this avoids incrementing and/or decrementing the SP during saving and restoring registers
+SwitcherResult SwitcherImplCore(SwitchingSource source, void* stackPointer)
 {
-  // TODO: ...
+  SwitcherResult result = {.m_NewSP = stackPointer, .m_PreviousTask = NULL};  
+  Task* newTask = NULL;  
   
-  ResetPreemptiveSwitchTimer();
-  
-  return stackPointer;
+  if (source == SwitcherTick)
+  {
+    newTask = SwitcherTickCore();
+  }
+  else
+  {
+    ResetPreemptiveSwitchTimer();
+    
+    // TODO: ...
+    
+    // fix up SP for only partial saving register if switching tasks!
+    //stackPointer -= 15;  // we always store the SP pointing to the first used slot, not the first free slot!
+  }
+
+  // TODO: check for pending switch IRQs, run them now to avoid unnecessary exit and re-entry of SwitherImpl
+
+  if (newTask != NULL /*currentTask*/)
+  {
+    // TODO: update current task
+  }
+    
+  return result;
 }
 
-/*
-  Layout of partial task state on the tasks stack in oder of saving:
-    R31 ... R30    
-    SREG
-    (RAMPZ)
-    R27 ... R18
-    R1..R0
-    (RAMPX)
-    (RAMPY)
-    (RAMPD)
-    (EIND)
-    
-  Not saved registers due to ABI:
-    R29 ... R28
-    R16 ... R2
-*/
-
-ISR(SWITCHER_TICK_VECTOR, ISR_NAKED)
-{
-  asm volatile ("push r31         \n\t"  // save Z
-                "push r30         \n\t"
-                
-                "in r31,__SREG__  \n\t"  // saving SREG
-                "push r31         \n\t"                
-                );
-                
-  SWITCHER_ASM_DISABLE_SWITCHING_IRQS();
-  
-#ifdef RAMPZ  // if present save RAMPZ and clear it before using Z, uses r31
-  asm volatile ("in r31,%[rampz]  \n\t"
-                "push r31         \n\t"
-                "clr r31          \n\t"
-                "out %[rampz],r31"
-                :: [rampz] "I"(_SFR_IO_ADDR(RAMPZ)));
-#endif
-
-  asm volatile ("push r27                  \n\t"  // save X
-                "push r26                  \n\t"
-
-                "in r30,__SP_L__           \n\t"  // load original SP into Z
-                "in r31,__SP_H__           \n\t"
-
-                "ldi r27, hi8(%[swrStack]) \n\t"  // load switcher stack address in X
-                "ldi r26, lo8(%[swrStack]) \n\t"
-
-                "out __SP_H__,r27          \n\t"  // store switcher stack address from Y to SP and ...
-                "sei                       \n\t"  // ... enable interrupts
-                "out __SP_L__,r26          \n\t"
-                
-                "adiw r30,1                \n\t"  // increment SP in Z by one, we only have pre-decremnt store
-                
-                // save rest of registers
-                "st -z,r25                 \n\t"
-                "st -z,r24                 \n\t"
-                "st -z,r23                 \n\t"
-                "st -z,r22                 \n\t"
-                "st -z,r21                 \n\t"
-                "st -z,r20                 \n\t"
-                "st -z,r19                 \n\t"
-                "st -z,r18                 \n\t"
-                "st -z,r1                  \n\t"
-                "st -z,r0                  \n\t"                
-                                
-                "clr __zero_reg__          \n\t"  // clear zero reg
-                :: [swrStack] "i"(g_SwitcherStackData + (sizeof(g_SwitcherStackData) - 1)));
-
-#ifdef RAMPX
-  asm volatile ("in r0,%[rampx]             \n\t"
-                "st -z,r0                   \n\t"
-                "out %[rampx], __zero_reg__"
-                :: [rampx] "I"(_SFR_IO_ADDR(RAMPX)));
-#endif
-
-#ifdef RAMPY
-  asm volatile ("in r0,%[rampy]             \n\t"
-                "st -z,r0                   \n\t"
-                "out %[rampy], __zero_reg__"
-                :: [rampy] "I"(_SFR_IO_ADDR(RAMPY)));
-#endif
-
-#ifdef RAMPD
-  asm volatile ("in r0,%[rampd]             \n\t"
-                "st -z,r0                   \n\t"
-                "out %[rampd], __zero_reg__"
-                :: [rampd] "I"(_SFR_IO_ADDR(RAMPD)));
-#endif
-
-#ifdef EIND
-  asm volatile ("in r0,%[eind]             \n\t"
-                "st -z,r0                  \n\t"
-                "out %[eind], __zero_reg__"
-                :: [eind] "I"(_SFR_IO_ADDR(EIND)));
-#endif
-
-  asm volatile ("push r31                  \n\t"  // save original SP on stack
-                "push r30                  \n\t"
-
-                "call SwitcherTickCore     \n\t"  // call SwitcherTickCore C function
-                
-                "pop r30                   \n\t"  // restore original SP in Z
-                "pop r31                   \n\t"
-                );
-
-#ifdef EIND
-  asm volatile ("ld r0,z+ \n\t"
-                "out %[eind],r0"
-                :: [eind] "I"(_SFR_IO_ADDR(EIND)));
-#endif
-
-#ifdef RAMPD
-  asm volatile ("ld r0,z+ \n\t"
-                "out %[rampd],r0"
-                :: [rampd] "I"(_SFR_IO_ADDR(RAMPD)));
-#endif
-                
-#ifdef RAMPY
-  asm volatile ("ld r0,z+ \n\t"
-                "out %[rampy],r0"
-                :: [rampy] "I"(_SFR_IO_ADDR(RAMPY)));
-#endif
-
-#ifdef RAMPX
-  asm volatile ("ld r0,z+ \n\t"
-                "out %[rampx],r0"
-                :: [rampx] "I"(_SFR_IO_ADDR(RAMPX)));
-#endif
-
-                // restore bulk of registers                
-  asm volatile ("ld r0,z+                  \n\t"
-                "ld r1,z+                  \n\t"
-                "ld r18,z+                 \n\t"
-                "ld r19,z+                 \n\t"
-                "ld r20,z+                 \n\t"
-                "ld r21,z+                 \n\t"
-                "ld r22,z+                 \n\t"
-                "ld r23,z+                 \n\t"
-                "ld r24,z+                 \n\t"
-                "ld r25,z+                 \n\t"
-                
-                "ld r26,z+                 \n\t"  // restore X
-                "ld r27,z                  \n\t"
-                
-                "cli                       \n\t"  // disable interrupts
-                
-                "out __SP_H__,r31          \n\t"  // load stack pointer from Z into SP
-                "out __SP_L__,r30          \n\t"                
-                );
-
-#ifdef RAMPZ
-  asm volatile (// restore RAMPZ
-                "pop r30 \n\t"
-                "out %[rampz],r30"
-                :: [rampz] "I"(_SFR_IO_ADDR(RAMPZ)))
-                );                
-#endif
-
-  SWITCHER_ASM_ENABLE_SWITCHING_IRQS();  // re-enable switcher IRQs
-    
-  asm volatile ("pop r30                   \n\t"  // restore SREG
-                "out __SREG__,r30          \n\t"
-                
-                "pop r30                   \n\t"  // restore Z
-                "pop r31                   \n\t"
-  
-                "reti");
-}
-
-void SwitcherTickCore()
+Task* SwitcherTickCore()
 {
   // 64 bit arithmetic produces horrible code (especially within an ISR!)
   // doing it manually produces denser AND faster code ...
@@ -510,7 +387,9 @@ void SwitcherTickCore()
   // TODO: switcher tick handling
   //         walk task list (start with current task) and decrement all sleep counters if >0
   //         find next highest priority task that has timed out (sleep counter went from 1 to 0)
-  //         if this task has a higher priority then the current task, trigger an forced task switch  
+  //         if this task has a higher priority then the current task, trigger an forced task switch
+  
+  return NULL; 
 }
 
 void PauseSwitchingImpl()

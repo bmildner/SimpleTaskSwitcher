@@ -83,6 +83,8 @@ typedef struct
   };
 } TickCount;
 
+typedef struct {} Task;  // TODO: ...
+
 typedef void (*TaskFunction)(void*);
 
 // 32 register + SREG + extension registers + return address 
