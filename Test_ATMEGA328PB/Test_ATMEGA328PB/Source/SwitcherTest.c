@@ -36,7 +36,7 @@ static Bool AreSwitcherIRQsDisabled();
 #define ASM_BREAK_LOOP_IF_NOT_EQUAL           \
                 "breq .+4              \n\t"  \
                 "break                 \n\t"  \
-                "rjmp .-4              \n\t"  \
+                "rjmp .-4              \n\t"
 
 // Checks that the called function does not alter any CPU registers or
 // SREG, only SREG_I is ignored to allow testing of ISRs.
@@ -469,8 +469,7 @@ Bool AreSwitcherIRQsDisabled()
 // ********************** TestSupport **********************
 
 static void DummyFunction()
-{
-}
+{}
 
 static void PreservesFullStateCallsDummyFkt()
 {
@@ -482,7 +481,7 @@ static void AdheresToABICallsDummyFkt()
   AdheresToABI(&DummyFunction);
 }
 
-void TestTestSupport()
+static void TestTestSupport()
 {
   AdheresToABI(&PreservesFullStateCallsDummyFkt);
   AdheresToABI(&AdheresToABICallsDummyFkt);
@@ -490,19 +489,11 @@ void TestTestSupport()
 
 // ********************** Yield **********************
 
-__attribute__((naked))
-static void YieldTrampolin()
+static void YieldTest()
 {
-  Yield();
-  
-  asm volatile ("ret");
-}
+  AdheresToABI(&Yield);
 
-void YieldTest()
-{
-  PreservesFullState(&YieldTrampolin);
-
-  EnablesSREG_I(&YieldTrampolin);
+  PreservesSREG_I(&Yield);
 }
 
 // ********************** SWITCHER_PREEMPTIVE_SWITCH_VECTOR **********************
@@ -513,13 +504,14 @@ static void SwitcherPreemptiveSwitchVectorTrampolin()
   asm volatile ("jmp " TO_STRING(SWITCHER_PREEMPTIVE_SWITCH_VECTOR));
 }
 
-void PreemptiveSwitchISRTest()
+static void PreemptiveSwitchISRTest()
 {
   PauseSwitching();  // avoid parallel vector entry -> trashed switcher stack!
+  
   PreservesFullState(&SwitcherPreemptiveSwitchVectorTrampolin);
-
-  PauseSwitching();  // avoid parallel vector entry -> trashed switcher stack!
   EnablesSREG_I(&SwitcherPreemptiveSwitchVectorTrampolin);
+  
+  ResumeSwitching();
 }
 
 // ********************** SWITCHER_FORCED_SWITCH_VECTOR **********************
@@ -533,10 +525,11 @@ static void SwitcherForcedSwitchVectorTrampolin()
 void ForcedSwitchISRTest()
 {
   PauseSwitching();  // avoid parallel vector entry -> trashed switcher stack!
+  
   PreservesFullState(&SwitcherForcedSwitchVectorTrampolin);
-
-  PauseSwitching();  // avoid parallel vector entry -> trashed switcher stack!
   EnablesSREG_I(&SwitcherForcedSwitchVectorTrampolin);
+  
+  ResumeSwitching();
 }
 
 // ********************** SWITCHER_TICK_VECTOR **********************
@@ -547,13 +540,14 @@ static void SwitcherTickVectorTrampolin()
   asm volatile ("jmp " TO_STRING(SWITCHER_TICK_VECTOR));
 }
 
-void SwitcherTickISRTest()
+static void SwitcherTickISRTest()
 {
   PauseSwitching();  // avoid parallel vector entry -> trashed switcher stack!
-  PreservesFullState(&SwitcherTickVectorTrampolin);
   
-  PauseSwitching();  // avoid parallel vector entry -> trashed switcher stack!
+  PreservesFullState(&SwitcherTickVectorTrampolin);
   EnablesSREG_I(&SwitcherTickVectorTrampolin);
+  
+  ResumeSwitching();
 }
 
 // ********************** PauseSwitching **********************
@@ -580,9 +574,22 @@ static void PauseSwitchingTest_OK()
       asm volatile ("break");
     }
   }
+  
+  PauseSwitching();
+
+  if (!AreSwitcherIRQsDisabled())
+  {
+    while (TRUE)
+    {
+      asm volatile ("break");
+    }
+  }
+  
+  ResumeSwitching();  
+  ResumeSwitching();
 }
 
-void PauseSwitchingTest()
+static void PauseSwitchingTest()
 {
   PauseSwitchingTest_OK();
   
@@ -601,12 +608,37 @@ static void ResumeSwitchingTrampolin()
 
 static void ResumeSwitchingTest_OK()
 {
+  PauseSwitching();
+  
   TIMSK2 &= ~((1 << OCIE2A) | (1 << OCIE2B));
   PCMSK3 &= ~(1 << PCINT25);
+  
+  ResumeSwitching();
+
+  if (!AreSwitcherIRQsEnabled())
+  {
+    while (TRUE)
+    {
+      asm volatile ("break");
+    }
+  }
+  
+  PauseSwitching();
+  PauseSwitching();
+  
+  ResumeSwitching();
+  
+  if (!AreSwitcherIRQsDisabled())
+  {
+    while (TRUE)
+    {
+      asm volatile ("break");
+    }
+  }
 
   ResumeSwitching();
 
-  if (!AreSwitcherIRQsEnabled())  
+  if (!AreSwitcherIRQsEnabled())
   {
     while (TRUE)
     {
@@ -615,7 +647,7 @@ static void ResumeSwitchingTest_OK()
   }  
 }
 
-void ResumeSwitchingTest()
+static void ResumeSwitchingTest()
 {
   ResumeSwitchingTest_OK();
   
@@ -624,14 +656,23 @@ void ResumeSwitchingTest()
 
 // ********************** AddTask **********************
 
-void AddTaskTrumpolin()
+static Task g_TestTask;
+
+static void EmptyTestTaskFunction(void* param)
 {
-  AddTask(testStack, sizeof(testStack), (TaskFunction) 0xabcd, (void*) 0xdead);
+  (void)param;
 }
 
-void AddTaskTest()
+static void AddTaskTrumpolin()
+{  
+  AddTask(&g_TestTask, testStack, sizeof(testStack), &EmptyTestTaskFunction, NULL, PriorityNormal);
+  
+  JoinTask(&g_TestTask, TimeoutInfinite);
+}
+
+static void AddTaskTest()
 {
-  if (!AddTask(testStack, sizeof(testStack), (TaskFunction) 0xabcd, (void*) 0xdead))
+  if (!AddTask(&g_TestTask, testStack, sizeof(testStack), (TaskFunction) 0xabcd, (void*) 0xdead, PriorityNormal))
   {
     while (TRUE)
     {
@@ -639,9 +680,27 @@ void AddTaskTest()
     }
   }
   
-  // TODO: join new task ...
+  JoinTask(&g_TestTask, TimeoutInfinite);
   
   PreservesSREG_I(&AddTaskTrumpolin);
   
   AdheresToABI(&AddTaskTrumpolin);
+}
+
+// ********************** SwitcherTestSuite **********************
+
+void SwitcherTestSuite()
+{
+  TestTestSupport();
+  
+  SwitcherTickISRTest();
+  PreemptiveSwitchISRTest();
+  ForcedSwitchISRTest();
+      
+  YieldTest();
+      
+  PauseSwitchingTest();
+  ResumeSwitchingTest();
+      
+  AddTaskTest();
 }

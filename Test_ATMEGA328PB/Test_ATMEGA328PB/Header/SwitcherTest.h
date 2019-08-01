@@ -10,21 +10,6 @@
 
 #include "Switcher.h"
 
-void TestTestSupport();
-
-void YieldTest();
-
-void PauseSwitchingTest();
-
-void ResumeSwitchingTest();
-
-void AddTaskTest();
-
-
-void SwitcherTickISRTest();
-
-void PreemptiveSwitchISRTest();
-
-void ForcedSwitchISRTest();
+void SwitcherTestSuite();
 
 #endif /* SWITCHERTEST_H_ */

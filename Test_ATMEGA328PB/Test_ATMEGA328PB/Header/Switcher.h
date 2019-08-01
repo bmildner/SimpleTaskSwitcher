@@ -26,7 +26,6 @@
 
 typedef uint8_t Bool;
 
-
 #ifdef RAMPX
 # define SWITCHER_RAMPX_SIZE 1
 #else
@@ -59,6 +58,11 @@ typedef uint8_t Bool;
 
 #define SWITCHER_EXTENSION_REGS_SIZE (SWITCHER_RAMPX_SIZE + SWITCHER_RAMPY_SIZE + SWITCHER_RAMPX_SIZE + SWITCHER_RAMPD_SIZE + SWITCHER_EIND_SIZE)
 
+// hmm ... seems not to help with intellisense issues ...
+//#ifdef __INTELLISENSE__
+//# define __AVR_2_BYTE_PC__ 1
+//#endif
+
 #ifdef __AVR_2_BYTE_PC__
 # define SWITCHER_RETURN_ADDR_SIZE 2
 #elif defined(__AVR_3_BYTE_PC__)
@@ -66,6 +70,25 @@ typedef uint8_t Bool;
 #else
 # error "Unknown return address size"
 #endif
+
+
+#define SWITCHER_DISABLE_INTERRUPTS()            \
+  __attribute__ ((unused)) uint8_t sreg = SREG;  \
+  cli();                                         \
+  __asm__ volatile ("" ::: "memory")
+
+
+#define SWITCHER_ENABLE_INTERRUPTS()          \
+  SREG = sreg;                                \
+  __asm__ volatile ("" ::: "memory")
+
+// error codes
+typedef enum {SwitcherNoError = 0,
+              SwitcherNotInitialized,
+              SwitcherInvalidParameter,
+              SwitcherTimeout,
+              SwitcherTooManyTasks
+              } SwitcherError;
 
 // 64 bit arithmetic produces horrible code (especially within an ISR!)
 // doing it manually produces denser AND faster code in an ISR ....
@@ -83,9 +106,45 @@ typedef struct
   };
 } TickCount;
 
-typedef struct {} Task;  // TODO: ...
+
+typedef enum {PriorityIdle    = 0, 
+              PriorityLowest  = 1,
+              PriorityLower   = 64,
+              PriorityNormal  = 128,
+              PriorityHigher  = 192,
+              PriorityHighest = 255
+              } Priority;
+
+typedef enum {TimeoutNone     = 0,
+              TimeoutMaximum  = 0xfffe,
+              TimeoutInfinite = 0xffff
+              } Timeout;
+
+typedef struct Task_ Task;
+
+typedef struct Task_
+{
+  void*    m_pStackPointer;     // points to the last saved byte on the stack, not the first free byte
+  
+  uint16_t m_SleepCount;        // remaining number of switcher ticks this task is sleeping, 
+                                // 0 == active, 0xffff = infinite
+  uint8_t  m_PauseSwitchingCounter;  // tracks number of PauseSwitching calls, allows for nested Pause/Resume blocks
+  
+  Task*    m_pTaskListNext;     // task list next pointer, ring list
+  Task*    m_pWaitingListNext;  // waiting list next pointer, linear list, task waits for an synchronization object
+  Task*    m_pWaitingList;      // pointer to waiting list, other tasks waiting for this task to terminate
+  
+  Priority m_BasePriority;      // assigned base priority
+  Priority m_Priority;          // actual current priority
+  
+  // stack check only
+  void*    m_StackBuffer;       // may be NULL for main task
+  uint16_t m_StackSize;         // may be 0 for main task
+} Task;
 
 typedef void (*TaskFunction)(void*);
+
+extern Task* g_CurrentTask;
 
 // 32 register + SREG + extension registers + return address 
 #define SWITCHER_TASK_STATE_SIZE (32 + 1 + SWITCHER_EXTENSION_REGS_SIZE + SWITCHER_RETURN_ADDR_SIZE)
@@ -93,18 +152,38 @@ typedef void (*TaskFunction)(void*);
 // task state + call into task function + address of task function + parameter for task function
 #define SWITCHER_TASK_STATE_MIN_STACK_SIZE (SWITCHER_TASK_STATE_SIZE + sizeof(TaskFunction) + sizeof(void*))
 
+SwitcherError Initialize(Task* mainTask);
 
-#define Yield() asm volatile ("call YieldImpl" ::: "memory")
+// preserves the global interrupt flag and state of switcher IRQs
+// interrupts are enabled during execution but state is restored before return
+void Yield();
+
+// terminates the current task, does not return
+__attribute__ ((noreturn))
+void TerminateTask();
+
+// preserves the global interrupt flag and state of switcher IRQs
+// interrupts are enabled during execution but state is restored before return
+void Sleep(Timeout timeout);
 
 // TODO: test if this causes more or less code then using ABI!
-#define PauseSwitching() asm volatile ("call PauseSwitchingImpl" ::: "r18", "r30", "r31", "memory")
+#define PauseSwitching() asm volatile ("call PauseSwitchingImpl" ::: "r18", "r19", "r30", "r31", "memory")
 
-#define ResumeSwitching() asm volatile ("call ResumeSwitchingImpl" ::: "r18", "r30", "r31", "memory")
+#define ResumeSwitching() asm volatile ("call ResumeSwitchingImpl" ::: "r18", "r19", "r30", "r31", "memory")
 
 // <stackBuffer> points to the beginning of the stack memory, 
 //               first stack location will be (stackBuffer + (stackSize - 1))!
-Bool AddTask(void* stackBuffer, size_t stackSize, TaskFunction taskFunction, void* taskParameter);
+SwitcherError AddTask(Task* task,
+                      void* stackBuffer, size_t stackSize,
+                      TaskFunction taskFunction, void* taskParameter,
+                      Priority priority);
+
+// returns SwitcherNoError if task is unknown or has been joined
+// returns SwitcherInvalidParameter for task == g_CurrentTask
+SwitcherError JoinTask(Task* task, Timeout timeout);
 
 TickCount GetSwitcherTickCount();
+
+Bool IsKnownTask(const Task* task);
 
 #endif /* SWITCHER_H_ */

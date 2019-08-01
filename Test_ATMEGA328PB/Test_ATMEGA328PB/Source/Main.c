@@ -33,32 +33,27 @@ static void InitHardware()
   OCR2A = 39;
   OCR2B = 39;
   TCNT2 = 0;
-  TIMSK2 = (1 << OCIE2A) | (1 << OCIE2B);
+  //TIMSK2 = (1 << OCIE2A) | (1 << OCIE2B);
   TCCR2B = (1 << CS21) | (1 << CS22);
   
   // setup PCI3 as forced switching IRQ, pin PE1
   DDRE = (1 << DDRE1);
   PCICR = (1 << PCIE3);
-  PCMSK3 = (1 << PCINT25);
+  //PCMSK3 = (1 << PCINT25);
 }
+
+Task g_MainTask;
 
 int main(void)
 {
     sei();    
-    InitHardware();    
+    InitHardware();
+    
+    Initialize(&g_MainTask);
     
     while (1) 
     {
-      SwitcherTickISRTest();
-      PreemptiveSwitchISRTest();
-      ForcedSwitchISRTest();
-      
-      YieldTest();
-      
-      PauseSwitchingTest();            
-      ResumeSwitchingTest();
-      
-      AddTaskTest();      
+      SwitcherTestSuite();
     }
 }
 

@@ -9,6 +9,7 @@
 
 #include <inttypes.h>
 #include <string.h>
+#include <stddef.h>
 
 #include <avr/interrupt.h>
 
@@ -17,7 +18,7 @@
 
 #define SWITCHER_STACK_SIZE 32
 
-typedef enum {Yielded = 0, PreemptiveSwitch, ForcedSwitch, SwitcherTick} SwitchingSource;
+typedef enum {Yielded = 0, PreemptiveSwitch, ForcedSwitch, SwitcherTick, TerminatingTask} SwitchingSource;
 
 typedef struct  
 {
@@ -27,13 +28,24 @@ typedef struct
 } SwitcherResult;
 
 
+Task* g_CurrentTask = NULL;
+
+static uint8_t g_Tasks = 0;        // total number of tasks excl. IdelTask
+static uint8_t g_ActiveTasks = 0;  // number of currently active task, needs IRQ protection!
+
 static TickCount g_TickCount;
 
 static uint8_t g_SwitcherStackData[SWITCHER_STACK_SIZE];
 
+static Task    g_IdleTask;
+static uint8_t g_IdleTaskStackBuffer[SWITCHER_TASK_STATE_SIZE * 2];  // TODO: correctly size stack!!
+
 
 __attribute__((naked, used))
 void YieldImpl();
+
+__attribute__((naked, used, noreturn))
+void TerminateTaskImpl();
 
 __attribute__((naked, used))
 void PauseSwitchingImpl();
@@ -49,14 +61,14 @@ static void SwitcherImpl();
 // Task switcher core implementation in C
 //   Takes switching source and SP of current task, returns SP of new task
 __attribute__((noinline, used))
-static SwitcherResult SwitcherImplCore(SwitchingSource source, void* stackPointer);
+static SwitcherResult SwitcherCore(SwitchingSource source, void* stackPointer);
 
 // Handles monotone switch tick, called from SwitchImplCore
 __attribute__((always_inline, used))
 static inline Task* SwitcherTickCore();
 
 
-// Common asm code every switcher entry function (Yield and ISRs) starts with
+// Common asm code every switcher entry function (Yield, ISRs, ...) starts with
 //   expects: interrupts are disabled
 #define SwitcherEntryImpl(source)                                               \
   asm volatile ("push r17         \n\t"   /* save r17 */                        \
@@ -85,8 +97,12 @@ ISR(SWITCHER_TICK_VECTOR, ISR_NAKED)
 
 void YieldImpl()
 {
-  cli();
   SwitcherEntryImpl(Yielded);
+}
+
+void TerminateTaskImpl()
+{
+  SwitcherEntryImpl(TerminatingTask);
 }
 
 /*
@@ -142,8 +158,8 @@ void SwitcherImpl()
   asm volatile ("in r28,__SP_L__           \n\t"  // load SP into Y
                 "in r29,__SP_H__           \n\t"
 
-                "ldi r31, hi8(%[swrStack]) \n\t"  // load switcher stack address in Z
-                "ldi r30, lo8(%[swrStack]) \n\t"
+                "ldi r31,hi8(%[swrStack])  \n\t"  // load switcher stack address in Z
+                "ldi r30,lo8(%[swrStack])  \n\t"
 
                 "out __SP_H__,r31          \n\t"  // store switcher stack address from Z to SP and ...
                 "sei                       \n\t"  // ... enable interrupts
@@ -169,28 +185,28 @@ void SwitcherImpl()
                 // save and clear extension registers RAMPX, RAMPZ, RAMPD and EIND if present
 #ifdef RAMPX
   asm volatile ("in r0,%[rampx]             \n\t"
-                "st -y,r0                   \n\t"
+                "st -y,__zero_reg__         \n\t"
                 "out %[rampx], __zero_reg__"
                 :: [rampx] "I"(_SFR_IO_ADDR(RAMPX)));
 #endif
 
 #ifdef RAMPZ
   asm volatile ("in r0,%[rampz]             \n\t"
-                "st -y,r0                   \n\t"
+                "st -y,__zero_reg__         \n\t"
                 "out %[rampz], __zero_reg__"
                 :: [rampz] "I"(_SFR_IO_ADDR(RAMPZ)));
 #endif
 
 #ifdef RAMPD
-  asm volatile ("in r0,%[rampd] \n\t"
-                "st -y,r0       \n\t"
+  asm volatile ("in r0,%[rampd]             \n\t"
+                "st -y,__zero_reg__         \n\t"
                 "out %[rampd], __zero_reg__"
                 :: [rampd] "I"(_SFR_IO_ADDR(RAMPD)));
 #endif
 
 #ifdef EIND
-  asm volatile ("in r0,%[eind] \n\t"
-                "st -y,r0      \n\t"
+  asm volatile ("in r0,%[eind]              \n\t"
+                "st -y,__zero_reg__         \n\t"
                 "out %[eind], __zero_reg__"
                 :: [eind] "I"(_SFR_IO_ADDR(EIND)));
 #endif
@@ -203,13 +219,13 @@ void SwitcherImpl()
                 "mov r22,r28            \n\t"
                 "mov r23,r29            \n\t"
 #endif                
-                "call SwitcherImplCore  \n\t"  // call SwitcherImplCore
+                "call SwitcherCore      \n\t"  // call SwitcherCore function
                 
                 "cp r28,r22             \n\t"  // check if old and new stack pointer are equal
                 "cpc r29,r23            \n\t"
                 "breq skipfullswitch    \n\t"
                 
-                // save remaining registers
+                // save remaining full switch only registers
                 "st -y,r16              \n\t"  // r17 already saved
                 "st -y,r15              \n\t"
                 "st -y,r14              \n\t"
@@ -282,26 +298,40 @@ void SwitcherImpl()
 #endif
 
                 // restore bulk of registers
-  asm volatile ("ld r0,y+           \n\t"
-                "ld r1,y+           \n\t"                
-                "ld r18,y+          \n\t"  // r17 is restored later
-                "ld r19,y+          \n\t"
-                "ld r20,y+          \n\t"
-                "ld r21,y+          \n\t"
-                "ld r22,y+          \n\t"
-                "ld r23,y+          \n\t"
-                "ld r24,y+          \n\t"
-                "ld r25,y+          \n\t"
-                "ld r26,y+          \n\t"
-                "ld r27,y           \n\t"
+  asm volatile ("ld r0,y+                      \n\t"
+                "ld r1,y+                      \n\t"                
+                "ld r18,y+                     \n\t"  // r17 is restored later
+                "ld r19,y+                     \n\t"
+                "ld r20,y+                     \n\t"
+                "ld r21,y+                     \n\t"
+                "ld r22,y+                     \n\t"
+                "ld r23,y+                     \n\t"
+                "ld r24,y+                     \n\t"
+                "ld r25,y+                     \n\t"
+                "ld r26,y+                     \n\t"
+                "ld r27,y                      \n\t"
 
-                "cli                \n\t"  // disable interrupts
+                "lds r30,%[currentTask]        \n\t"  // load address of current task into Z
+                "lds r31,%[currentTask] + 1    \n\t"
+
+                "cli                           \n\t"  // disable interrupts
                 
-                "out __SP_H__,r29   \n\t"  // load stack pointer from Y into SP
-                "out __SP_L__,r28   \n\t"
-                );
+                "out __SP_H__,r29              \n\t"  // load stack pointer from Y into SP
+                "out __SP_L__,r28              \n\t"
+
+
+                "ldd r29,z + %[counterOffset]  \n\t"  // load m_PauseSwitchingCounter into r29
+                                
+                "cpi r29,0                     \n\t"  // if counter is not 0 ...
+                "brne skipRestoreSwitching     \n\t"  // jump to skipRestoreSwitching
+                
+                :: [currentTask] "i"(&g_CurrentTask), 
+                   [counterOffset] "I"(offsetof(Task, m_PauseSwitchingCounter)));
+
                 
                 SWITCHER_ASM_ENABLE_SWITCHING_IRQS();  // re-enable switcher IRQs
+
+  asm volatile ("skipRestoreSwitching:");
 
 #ifdef RAMPY
   asm volatile (// restore RAMPY
@@ -311,64 +341,144 @@ void SwitcherImpl()
                 );                
 #endif
 
-  asm volatile ("pop r28            \n\t"  // restore Y
-                "pop r29            \n\t"
+  asm volatile ("pop r28                  \n\t"  // restore Y
+                "pop r29                  \n\t"
 
-                "pop r31            \n\t"  // SREG in r31, SREG_I is 0!
+                "pop r31                  \n\t"  // SREG in r31, SREG_I is 0!
                 
-                "pop r30            \n\t"  // restore R30
+                "pop r30                  \n\t"  // restore R30
                 
-                "cpi r17,%[yielded] \n\t"  // check if source is Yielded
-                "brne reti_return   \n\t"  // branch to reti return if not
+                "cpi r17,%[yielded]       \n\t"  // test if source is Yielded
+                "breq ret_return          \n\t"  // branch to ret_return if equal
 
-                "out __SREG__,r31   \n\t"  // restore SREG
-                
-                "pop r31            \n\t"  // restore R31
-                "pop r17            \n\t"  // restore R17
-                
-                "sei                \n\t"  // we always return with interrupts enabled!
-                
-                "ret                \n\t"
+                "cpi r17,%[terminateTask] \n\t"  // test if source is TerminatingTask
+                "breq ret_return          \n\t"  // branch to ret_return if equal
 
-              "reti_return:         \n\t"
+                "out __SREG__,r31         \n\t"  // restore SREG
                 
-                "out __SREG__,r31   \n\t"  // restore SREG
+                "pop r31                  \n\t"  // restore R31
+                "pop r17                  \n\t"  // restore R17
                 
-                "pop r31            \n\t"  // restore R31
-                "pop r17            \n\t"  // restore R17
-                                
-                "reti"
-                :: [yielded] "i"(Yielded));
+                "reti                     \n\t"
+
+              "ret_return:                \n\t"
+                
+                "out __SREG__,r31         \n\t"  // restore SREG
+                
+                "pop r31                  \n\t"  // restore R31
+                "pop r17                  \n\t"  // restore R17
+                     
+                "sei                      \n\t"  // we always return with interrupts enabled!
+                
+                "ret"
+                :: [yielded] "i"(Yielded), [terminateTask] "i"(TerminatingTask));
 }
 
 // <stackPointer> is 16 bytes off for full state switch, 
 // however we always store the SP pointing to the last saved byte not the first free slot!
 // this avoids incrementing and/or decrementing the SP during saving and restoring registers
-SwitcherResult SwitcherImplCore(SwitchingSource source, void* stackPointer)
+SwitcherResult SwitcherCore(SwitchingSource source, void* stackPointer)
 {
-  SwitcherResult result = {.m_NewSP = stackPointer, .m_PreviousTask = NULL};  
-  Task* newTask = NULL;  
-  
-  if (source == SwitcherTick)
+  SwitcherResult result = {.m_PreviousTask = g_CurrentTask};
+  Task* nextTask = g_CurrentTask;
+  Bool done = FALSE;
+
+  if (source != SwitcherTick)  
   {
-    newTask = SwitcherTickCore();
+    ResetPreemptiveSwitchTimer();
+  }
+
+  while (!done)
+  {
+    if (source == SwitcherTick)
+    {
+      Task* nectTaskCandidate = SwitcherTickCore();
+      if (nextTask->m_Priority < nectTaskCandidate->m_Priority)
+      {
+        nextTask = nectTaskCandidate;
+      }        
+    }
+    else
+    {
+      Task* taskListEntry = g_CurrentTask->m_pTaskListNext;
+    
+      while (taskListEntry != g_CurrentTask)
+      {
+        SWITCHER_DISABLE_INTERRUPTS();
+      
+        if (taskListEntry->m_SleepCount == 0)
+        {
+          if ((nextTask == g_CurrentTask) || (nextTask->m_Priority < taskListEntry->m_Priority))
+          {
+            nextTask = taskListEntry;
+          }
+        }
+      
+        SWITCHER_ENABLE_INTERRUPTS();
+      
+        taskListEntry = taskListEntry->m_pTaskListNext;
+      }  // while
+    }  // else
+    
+    if (source == TerminatingTask)
+    {
+      // TODO: assert(result.m_PreviousTask = g_CurrentTask)
+      // TODO: assert(nextTask != g_CurrentTask)
+      
+      // remove task from task list
+      Task* taskListEntry = g_CurrentTask->m_pTaskListNext;
+      
+      while (taskListEntry->m_pTaskListNext != g_CurrentTask)
+      {
+        taskListEntry = taskListEntry->m_pTaskListNext;
+      }      
+      // TODO: assert(taskListEntry->m_pTaskListNext == g_CurrentTask)
+      
+      taskListEntry->m_pTaskListNext = g_CurrentTask->m_pTaskListNext;
+      
+      g_Tasks--;
+      
+      // do not check for pending switcher IRQs
+      done = TRUE;
+      continue;
+    }
+
+    // check for pending switch IRQs, avoid exit and immediate re-entry of switcher implementation
+    if (IsSwitcherTickPending())
+    {
+      ResetSwitcherTickIrqFlag();
+      source = SwitcherTick;      
+    }
+    else if (IsPreemptiveSwitchPending())
+    {
+      ResetPreemptiveSwitchIrqFlag();
+      source = PreemptiveSwitch;
+    }
+    else if (IsForcedSwitchPending())
+    {
+      ResetForcedSwitchIrqFlag();
+      source = ForcedSwitch;
+    }
+    else
+    {
+      done = TRUE; 
+    }
+  }  // while
+
+  if (nextTask != g_CurrentTask)
+  {
+    g_CurrentTask->m_pStackPointer = stackPointer - 15;
+    
+    SWITCHER_DISABLE_INTERRUPTS();
+    g_CurrentTask = nextTask;
+    SWITCHER_ENABLE_INTERRUPTS();
+    
+    result.m_NewSP = g_CurrentTask->m_pStackPointer;
   }
   else
   {
-    ResetPreemptiveSwitchTimer();
-    
-    // TODO: ...
-    
-    // fix up SP for only partial saving register if switching tasks!
-    //stackPointer -= 15;  // we always store the SP pointing to the first used slot, not the first free slot!
-  }
-
-  // TODO: check for pending switch IRQs, run them now to avoid unnecessary exit and re-entry of SwitherImpl
-
-  if (newTask != NULL /*currentTask*/)
-  {
-    // TODO: update current task
-  }
+    result.m_NewSP = stackPointer;
+  }    
     
   return result;
 }
@@ -384,45 +494,208 @@ Task* SwitcherTickCore()
     g_TickCount.m_TickCountHigh++;
   }
   
-  // TODO: switcher tick handling
-  //         walk task list (start with current task) and decrement all sleep counters if >0
-  //         find next highest priority task that has timed out (sleep counter went from 1 to 0)
-  //         if this task has a higher priority then the current task, trigger an forced task switch
+  Task* taskListEntry = g_CurrentTask->m_pTaskListNext;
+  Task* nextTask = g_CurrentTask;
   
-  return NULL; 
+  while (taskListEntry != g_CurrentTask)
+  {
+    SWITCHER_DISABLE_INTERRUPTS();
+    
+    if ((taskListEntry->m_SleepCount > 0) && (taskListEntry->m_SleepCount < TimeoutInfinite))
+    {
+      taskListEntry->m_SleepCount--;
+      
+      if (taskListEntry->m_SleepCount == 0)
+      {
+        g_ActiveTasks++;        
+        
+        if (taskListEntry->m_Priority > nextTask->m_Priority)
+        {
+          nextTask = taskListEntry;
+        }          
+      }
+    }
+    
+    SWITCHER_ENABLE_INTERRUPTS();
+
+    taskListEntry = taskListEntry->m_pTaskListNext;
+  }
+    
+  return nextTask; 
+}
+
+void Yield()
+{
+  SWITCHER_DISABLE_INTERRUPTS();
+  
+  if (g_CurrentTask->m_SleepCount < TimeoutMaximum)
+  {
+    g_CurrentTask->m_SleepCount++;
+  }
+  
+  g_ActiveTasks--;
+  
+  asm volatile ("call YieldImpl" ::: "memory");  // saves two instructions, push/pop
+  //YieldImpl();
+  
+  SWITCHER_ENABLE_INTERRUPTS();
+}
+
+void TerminateTask()
+{  
+  SWITCHER_DISABLE_INTERRUPTS();
+    
+  g_CurrentTask->m_SleepCount = TimeoutInfinite;
+  g_ActiveTasks--;
+  
+  PauseSwitching();
+  
+  SWITCHER_ENABLE_INTERRUPTS();
+ 
+  // iterate over all tasks waiting for us to terminate
+  Task* waitingList = g_CurrentTask->m_pWaitingList;
+  
+  while (waitingList != NULL)
+  {
+    SWITCHER_DISABLE_INTERRUPTS();
+    
+    waitingList->m_SleepCount = 0;
+    g_ActiveTasks++;
+    
+    SWITCHER_ENABLE_INTERRUPTS();
+    
+    waitingList = waitingList->m_pWaitingListNext;
+  }
+  
+  cli();
+  
+  TerminateTaskImpl();  // TODO: generates rcall, expected rjmp !?!?!?!?
+}
+
+void Sleep(Timeout timeout)
+{
+  if (timeout > TimeoutNone)
+  {    
+    SWITCHER_DISABLE_INTERRUPTS();
+  
+    g_CurrentTask->m_SleepCount = timeout;
+    
+    Yield();
+    
+    SWITCHER_ENABLE_INTERRUPTS();
+  }
+  else
+  {
+    Yield();
+  }    
 }
 
 void PauseSwitchingImpl()
 {
-  asm volatile ("in r18,__SREG__  \n\t"  // saving SREG
-  
-                "cli              \n\t"  // disable interrupts
-                );
+  asm volatile ("lds r30,%[currentTask]        \n\t"  // load address of current task into Z
+                "lds r31,%[currentTask] + 1    \n\t"
+
+                "in r18,__SREG__               \n\t"  // saving SREG
+                "cli                           \n\t"  // disable interrupts
+                                 
+                "ldd r19,z + %[counterOffset]  \n\t"  // load m_PauseSwitchingCounter into r19
+                 
+                "inc r19                       \n\t"  // increment m_PauseSwitchingCounter
+                
+                "std z + %[counterOffset],r19  \n\t"  // save m_PauseSwitchingCounter
+                
+                "cpi r19,1                     \n\t"  // if counter did not change from 0 to 1 ...
+                "brne pauseDone                \n\t"  // jump to pauseDone
+                :: [currentTask] "i"(&g_CurrentTask), 
+                   [counterOffset] "I"(offsetof(Task, m_PauseSwitchingCounter)));
                 
   SWITCHER_ASM_DISABLE_SWITCHING_IRQS();
 
-  asm volatile ("out __SREG__,r18 \n\t"  // restore SREG
+  asm volatile ("pauseDone:        \n\t"
                 
-                "ret              \n\t"
+                "out __SREG__,r18  \n\t"  // restore SREG
+                                
+                "ret               \n\t"
                 );
 }
 
 void ResumeSwitchingImpl()
 {
-  asm volatile ("in r18,__SREG__  \n\t"  // saving SREG
+  asm volatile ("lds r30,%[currentTask]        \n\t"  // load address of current task into Z
+                "lds r31,%[currentTask] + 1    \n\t"
+
+                "in r18,__SREG__               \n\t"  // saving SREG
+                "cli                           \n\t"  // disable interrupts
+
+                "ldd r19,z + %[counterOffset]  \n\t"  // load m_PauseSwitchingCounter into r19
+                 
+                "dec r19                       \n\t"  // decrement m_PauseSwitchingCounter
                 
-                "cli              \n\t"  // disable interrupts
-                );
+                "std z + %[counterOffset],r19  \n\t"  // save m_PauseSwitchingCounter
+                
+                "cpi r19,0                     \n\t"  // if counter did not change from 1 to 0 ...
+                "brne restoreDone              \n\t"  // jump to restoreDone
+                :: [currentTask] "i"(&g_CurrentTask),
+                   [counterOffset] "I"(offsetof(Task, m_PauseSwitchingCounter)));
   
   SWITCHER_ASM_ENABLE_SWITCHING_IRQS();
   
-  asm volatile ("out __SREG__,r18 \n\t"  // restore SREG
-                
-                "ret              \n\t"
+  asm volatile ("restoreDone:      \n\t"
+  
+                "out __SREG__,r18  \n\t"  // restore SREG
+
+                "ret               \n\t"
                 );
 }
 
-Bool AddTask(void* stackBuffer, size_t stackSize, TaskFunction taskFunction, void* taskParameter)
+static void IdleTask(void* param)
+{
+  (void)param;
+  
+  while (TRUE)
+  {
+    // TODO: implement ...
+    Yield();
+  }
+}
+
+SwitcherError Initialize(Task* mainTask)
+{
+  if (mainTask == NULL)
+  {
+    return SwitcherInvalidParameter;
+  }
+
+  // add main task
+  memset(mainTask, 0x00, sizeof(*mainTask));
+  
+  mainTask->m_BasePriority = PriorityNormal;
+  mainTask->m_Priority = PriorityNormal;
+  mainTask->m_pTaskListNext = mainTask;
+  
+  SWITCHER_DISABLE_INTERRUPTS();  
+        
+  g_CurrentTask = mainTask;
+  
+  g_Tasks = 1;
+  g_ActiveTasks = 1;
+  
+  PauseSwitching();
+  
+  SWITCHER_ENABLE_INTERRUPTS();
+
+  // add idle task
+  AddTask(&g_IdleTask, g_IdleTaskStackBuffer, sizeof(g_IdleTaskStackBuffer), &IdleTask, NULL, PriorityIdle);
+
+  ResumeSwitching();
+  
+  return SwitcherNoError;
+}
+
+SwitcherError AddTask(Task* task, 
+                      void* stackBuffer, size_t stackSize, 
+                      TaskFunction taskFunction, void* taskParameter, 
+                      Priority priority)
 {
   // initial task state is setup to allow starting a new task by adding it to the tasklist and start it
   // by simply have the task switcher, switch to it
@@ -445,13 +718,25 @@ Bool AddTask(void* stackBuffer, size_t stackSize, TaskFunction taskFunction, voi
   // TODO: assert(stackSize >= SWITCHER_TASK_STATE_MIN_STACK_SIZE)
   //       assert(sizeof(TaskState) == SWITCHER_TASK_STATE_MIN_STACK_SIZE)
 
-  if ((stackBuffer == NULL) ||
+  if ((task == NULL) ||
+      (stackBuffer == NULL) ||
       (taskFunction == NULL) ||
+      ((priority < PriorityLowest) && (task != &g_IdleTask)) ||
       (stackSize < sizeof(InitialTaskState)))
   {
-    return FALSE;
+    return SwitcherInvalidParameter;
   }
-    
+  
+  if (g_CurrentTask == NULL)
+  {
+    return SwitcherNotInitialized;
+  }
+  
+  if (g_Tasks == 0xff)
+  {
+    return SwitcherTooManyTasks;
+  }
+  
   InitialTaskState* pInitialTaskState = stackBuffer + ((stackSize - 1) - sizeof(InitialTaskState));
     
   memset(pInitialTaskState, 0x00, sizeof(InitialTaskState));
@@ -459,11 +744,33 @@ Bool AddTask(void* stackBuffer, size_t stackSize, TaskFunction taskFunction, voi
   pInitialTaskState->m_ReturnAddress = &TaskStartup;
   pInitialTaskState->m_TaskFunctionAddress = taskFunction;
   pInitialTaskState->m_TaskFunctionParameter = taskParameter;
+
+  task->m_pStackPointer = pInitialTaskState;
+  task->m_BasePriority = priority;
+  task->m_Priority = priority;
+  task->m_StackBuffer = stackBuffer;
+  task->m_StackSize = stackSize;    
+  task->m_pWaitingListNext = NULL;
+  task->m_pWaitingList = NULL;
+  task->m_SleepCount = 0;
+  task->m_PauseSwitchingCounter = 0;
+
+  PauseSwitching();
   
-  // TODO: initialize task structure
-  //       add new task into to tasklist, switcher will start it when switching to it
+  task->m_pTaskListNext = g_CurrentTask->m_pTaskListNext;
+  g_CurrentTask->m_pTaskListNext = task;
   
-  return TRUE;
+  g_Tasks++;
+  
+  SWITCHER_DISABLE_INTERRUPTS();
+  g_ActiveTasks++;
+  SWITCHER_ENABLE_INTERRUPTS();
+  
+  ResumeSwitching();
+        
+  // TODO: Yield() ?!?!?!?
+  
+  return SwitcherNoError;
 }
 
 void TaskStartup()
@@ -478,17 +785,78 @@ void TaskStartup()
                 "pop %A[func]  \n\t"
                 : [param] "=e" (taskParameter), [func] "=e" (taskFunction));
 
-  taskFunction(taskParameter);
+  taskFunction(taskParameter);  // call task function
   
-  PauseSwitching();  
-  // TODO: remove task from tasklist  
-  Yield();
-  
+  TerminateTask();
+    
   // WE SHOULD NEVER EVER REACH THIS POINT!
+}
+
+SwitcherError JoinTask(Task* task, Timeout timeout)
+{
+  PauseSwitching();
+  
+  if (IsKnownTask(task))
+  {
+    if (task == g_CurrentTask)
+    {
+      ResumeSwitching();
+      
+      return SwitcherInvalidParameter;
+    }
+    
+    // add us to the tasks waiting list
+    g_CurrentTask->m_pWaitingListNext = task->m_pWaitingList;
+    task->m_pWaitingList = g_CurrentTask;
+    
+    Sleep(timeout);
+    
+    if (IsKnownTask(task))
+    {
+      ResumeSwitching();
+      
+      return SwitcherTimeout;
+    }
+  }
+  
+  ResumeSwitching();
+  
+  return SwitcherNoError;
 }
 
 TickCount GetSwitcherTickCount()
 {
-  // TODO: disable interrupts!!!!
-  return g_TickCount;
+  TickCount count;
+  
+  SWITCHER_DISABLE_INTERRUPTS();
+  
+  count = g_TickCount;
+  
+  SWITCHER_ENABLE_INTERRUPTS();
+  
+  return count;
+}
+
+Bool IsKnownTask(const Task* task)
+{
+  Bool found = FALSE;
+  
+  PauseSwitching();
+  
+  Task* taskList = g_CurrentTask;
+  
+  do 
+  {
+    if (taskList == task)
+    {
+      found = TRUE;
+      break;
+    }
+    
+    taskList = taskList->m_pTaskListNext;
+  } while (taskList != g_CurrentTask);
+  
+  ResumeSwitching();
+  
+  return found;
 }
