@@ -11,3 +11,5 @@
 *.i
 *.s
 *.mk
+*.su
+Makefile
