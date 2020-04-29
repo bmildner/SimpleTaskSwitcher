@@ -466,7 +466,7 @@ Bool AreSwitcherIRQsDisabled()
     return TRUE;
 }
 
-// ********************** TestSupport **********************
+// ********************** Tests for Tests **********************
 
 static void DummyFunction()
 {}
