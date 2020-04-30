@@ -109,9 +109,9 @@ typedef struct
 
 typedef enum {PriorityIdle    = 0, 
               PriorityLowest  = 1,
-              PriorityLower   = 64,
+              PriorityLow     = 64,
               PriorityNormal  = 128,
-              PriorityHigher  = 192,
+              PriorityHigh    = 192,
               PriorityHighest = 255
               } Priority;
 
@@ -120,26 +120,28 @@ typedef enum {TimeoutNone     = 0,
               TimeoutInfinite = 0xffff
               } Timeout;
 
+enum {MaxNumberOfTasks = 0xff};
+
 typedef struct Task_ Task;
 
 typedef struct Task_
 {
-  void*    m_pStackPointer;     // points to the last saved byte on the stack, not the first free byte
+  void*    m_pStackPointer;          // points to the last saved byte on the stack, not the first free byte
   
-  uint16_t m_SleepCount;        // remaining number of switcher ticks this task is sleeping, 
-                                // 0 == active, 0xffff = infinite
+  uint16_t m_SleepCount;             // remaining number of switcher ticks this task is sleeping, 
+                                     // 0 == active, 0xffff = infinite
   uint8_t  m_PauseSwitchingCounter;  // tracks number of PauseSwitching calls, allows for nested Pause/Resume blocks
   
-  Task*    m_pTaskListNext;     // task list next pointer, ring list
-  Task*    m_pWaitingListNext;  // waiting list next pointer, linear list, task waits for an synchronization object
-  Task*    m_pWaitingList;      // pointer to waiting list, other tasks waiting for this task to terminate
+  Task*    m_pTaskListNext;          // task list next pointer, ring list
+  Task*    m_pWaitingListNext;       // waiting list next pointer, linear list, task waits for an synchronization object
+  Task*    m_pWaitingList;           // pointer to waiting list, other tasks waiting for this task to terminate
   
-  Priority m_BasePriority;      // assigned base priority
-  Priority m_Priority;          // actual current priority
+  Priority m_BasePriority;           // assigned base priority
+  Priority m_Priority;               // actual current priority
   
   // stack check only
-  void*    m_StackBuffer;       // may be NULL for main task
-  uint16_t m_StackSize;         // may be 0 for main task
+  void*    m_StackBuffer;            // may be NULL for main task
+  uint16_t m_StackSize;              // may be 0 for main task
 } Task;
 
 typedef void (*TaskFunction)(void*);

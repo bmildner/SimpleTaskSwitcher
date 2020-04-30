@@ -600,12 +600,13 @@ void PauseSwitchingImpl()
                                  
                 "ldd r19,z + %[counterOffset]  \n\t"  // load m_PauseSwitchingCounter into r19
                  
+                // TODO: add test for overrun in debug builds
                 "inc r19                       \n\t"  // increment m_PauseSwitchingCounter
                 
                 "std z + %[counterOffset],r19  \n\t"  // save m_PauseSwitchingCounter
                 
                 "cpi r19,1                     \n\t"  // if counter did not change from 0 to 1 ...
-                "brne pauseDone                \n\t"  // jump to pauseDone
+                "brne pauseDone                \n\t"  // ... jump to pauseDone
                 :: [currentTask] "i"(&g_CurrentTask), 
                    [counterOffset] "I"(offsetof(Task, m_PauseSwitchingCounter)));
                 
@@ -613,7 +614,7 @@ void PauseSwitchingImpl()
 
   asm volatile ("pauseDone:        \n\t"
                 
-                "out __SREG__,r18  \n\t"  // restore SREG
+                "out __SREG__,r18  \n\t"              // restore SREG
                                 
                 "ret               \n\t"
                 );
@@ -628,21 +629,22 @@ void ResumeSwitchingImpl()
                 "cli                           \n\t"  // disable interrupts
 
                 "ldd r19,z + %[counterOffset]  \n\t"  // load m_PauseSwitchingCounter into r19
-                 
+                
+                // TODO: add test for underruns in debug builds 
                 "dec r19                       \n\t"  // decrement m_PauseSwitchingCounter
                 
                 "std z + %[counterOffset],r19  \n\t"  // save m_PauseSwitchingCounter
                 
                 "cpi r19,0                     \n\t"  // if counter did not change from 1 to 0 ...
-                "brne restoreDone              \n\t"  // jump to restoreDone
+                "brne resumeDone               \n\t"  // ... jump to resumeDone
                 :: [currentTask] "i"(&g_CurrentTask),
                    [counterOffset] "I"(offsetof(Task, m_PauseSwitchingCounter)));
   
   SWITCHER_ASM_ENABLE_SWITCHING_IRQS();
   
-  asm volatile ("restoreDone:      \n\t"
+  asm volatile ("resumeDone:       \n\t"
   
-                "out __SREG__,r18  \n\t"  // restore SREG
+                "out __SREG__,r18  \n\t"              // restore SREG
 
                 "ret               \n\t"
                 );
@@ -698,7 +700,7 @@ SwitcherError AddTask(Task* task,
                       Priority priority)
 {
   // initial task state is setup to allow starting a new task by adding it to the tasklist and start it
-  // by simply have the task switcher, switch to it
+  // by simply have the task switcher switch to it
   //
   // initial task state contains a full task state where the all registers are 0 and the return address points to
   // the TaskStartup function, additionally the task functions address and its parameter are on the stack
@@ -732,7 +734,7 @@ SwitcherError AddTask(Task* task,
     return SwitcherNotInitialized;
   }
   
-  if (g_Tasks == 0xff)
+  if (g_Tasks == MaxNumberOfTasks)
   {
     return SwitcherTooManyTasks;
   }
