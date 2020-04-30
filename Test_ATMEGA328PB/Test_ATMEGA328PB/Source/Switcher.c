@@ -375,7 +375,7 @@ void SwitcherImpl()
 }
 
 // <stackPointer> is 16 bytes off for full state switch, 
-// however we always store the SP pointing to the last saved byte not the first free slot!
+// we always store the SP pointing to the last saved byte not the first free slot!
 // this avoids incrementing and/or decrementing the SP during saving and restoring registers
 SwitcherResult SwitcherCore(SwitchingSource source, void* stackPointer)
 {
@@ -392,10 +392,10 @@ SwitcherResult SwitcherCore(SwitchingSource source, void* stackPointer)
   {
     if (source == SwitcherTick)
     {
-      Task* nectTaskCandidate = SwitcherTickCore();
-      if (nextTask->m_Priority < nectTaskCandidate->m_Priority)
+      Task* nextTaskCandidate = SwitcherTickCore();
+      if (nextTask->m_Priority < nextTaskCandidate->m_Priority)
       {
-        nextTask = nectTaskCandidate;
+        nextTask = nextTaskCandidate;
       }        
     }
     else
