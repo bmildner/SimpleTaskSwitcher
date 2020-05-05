@@ -8,8 +8,6 @@
 #ifndef SWITCHERTEST_H_
 #define SWITCHERTEST_H_
 
-#include "Switcher.h"
-
 void SwitcherTestSuite();
 
 #endif /* SWITCHERTEST_H_ */

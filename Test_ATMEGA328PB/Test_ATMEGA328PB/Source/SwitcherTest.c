@@ -586,6 +586,15 @@ static void PauseSwitchingTest_OK()
   }
   
   ResumeSwitching();  
+
+  if (!AreSwitcherIRQsDisabled())
+  {
+    while (TRUE)
+    {
+      asm volatile ("break");
+    }
+  }
+
   ResumeSwitching();
 }
 

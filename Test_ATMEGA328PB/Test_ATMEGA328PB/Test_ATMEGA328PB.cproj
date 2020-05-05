@@ -114,7 +114,7 @@
   <avrgcc.compiler.optimization.DebugLevel>Maximum (-g3)</avrgcc.compiler.optimization.DebugLevel>
   <avrgcc.compiler.warnings.AllWarnings>True</avrgcc.compiler.warnings.AllWarnings>
   <avrgcc.compiler.warnings.Undefined>True</avrgcc.compiler.warnings.Undefined>
-  <avrgcc.compiler.miscellaneous.OtherFlags>-std=gnu99 -Waddr-space-convert</avrgcc.compiler.miscellaneous.OtherFlags>
+  <avrgcc.compiler.miscellaneous.OtherFlags>-std=gnu11 -Waddr-space-convert</avrgcc.compiler.miscellaneous.OtherFlags>
   <avrgcc.linker.libraries.Libraries>
     <ListValues>
       <Value>libm</Value>
@@ -159,7 +159,7 @@
   <avrgcc.compiler.optimization.DebugLevel>Maximum (-g3)</avrgcc.compiler.optimization.DebugLevel>
   <avrgcc.compiler.warnings.AllWarnings>True</avrgcc.compiler.warnings.AllWarnings>
   <avrgcc.compiler.warnings.Undefined>True</avrgcc.compiler.warnings.Undefined>
-  <avrgcc.compiler.miscellaneous.OtherFlags>-std=gnu99 -Waddr-space-convert -Wunused</avrgcc.compiler.miscellaneous.OtherFlags>
+  <avrgcc.compiler.miscellaneous.OtherFlags>-std=gnu11 -Waddr-space-convert -Wunused</avrgcc.compiler.miscellaneous.OtherFlags>
   <avrgcc.linker.libraries.Libraries>
     <ListValues>
       <Value>libm</Value>
@@ -175,6 +175,9 @@
     </ToolchainSettings>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="Header\Mutex.h">
+      <SubType>compile</SubType>
+    </Compile>
     <Compile Include="Header\Switcher.h">
       <SubType>compile</SubType>
     </Compile>
@@ -185,6 +188,9 @@
       <SubType>compile</SubType>
     </Compile>
     <Compile Include="Source\Main.c">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="Source\Mutex.c">
       <SubType>compile</SubType>
     </Compile>
     <Compile Include="Source\SwitcherTest.c">
