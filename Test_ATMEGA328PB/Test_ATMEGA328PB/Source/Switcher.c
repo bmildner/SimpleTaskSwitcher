@@ -10,7 +10,6 @@
 #include <inttypes.h>
 #include <string.h>
 #include <stddef.h>
-#include <assert.h>
 
 #include "SwitcherConfig.h"
 
@@ -29,8 +28,8 @@ typedef struct
 
 Task* g_CurrentTask = NULL;
 
-static uint8_t g_Tasks = 0; // total number of tasks excl. IdleTask, needs task switcher paused
-uint8_t g_ActiveTasks = 0;  // number of currently active task excl. IdleTask, needs IRQ protection!
+static uint8_t g_Tasks = 0; // total number of tasks excl. IdleTask, requires task switcher to be paused
+uint8_t g_ActiveTasks = 0;  // number of currently active task excl. IdleTask, requires IRQ protection!
 
 static TickCount g_TickCount;
 
@@ -322,7 +321,7 @@ void SwitcherImpl()
                 "ldd r29,z + %[counterOffset]  \n\t"  // load m_PauseSwitchingCounter into r29
                                 
                 "cpi r29,0                     \n\t"  // if counter is not 0 ...
-                "brne skipRestoreSwitching     \n\t"  // ... jump to skipRestoreSwitching
+                "brne skipEnableSwitchingIRQs  \n\t"  // ... jump to skipEnableSwitchingIRQs
                 
                 :: [currentTask] "i"(&g_CurrentTask), 
                    [counterOffset] "I"(offsetof(Task, m_PauseSwitchingCounter)));
@@ -330,7 +329,7 @@ void SwitcherImpl()
                 
                 SWITCHER_ASM_ENABLE_SWITCHING_IRQS();  // re-enable switcher IRQs
 
-  asm volatile ("skipRestoreSwitching:");
+  asm volatile ("skipEnableSwitchingIRQs:");
 
 #ifdef RAMPY  // restore RAMPY
   asm volatile ("pop r30          \n\t"
@@ -357,7 +356,7 @@ void SwitcherImpl()
                 "cpi r17,%[terminateTask] \n\t"  // test if source is TerminatingTask
                 "breq ret_return          \n\t"  // branch to ret_return if equal
 
-                "out __SREG__,r31         \n\t"  // restore SREG, must be after the branch
+                "out __SREG__,r31         \n\t"  // restore SREG, must be after the branch because the branch changes SREG
                 
                 "pop r31                  \n\t"  // restore R31
                 "pop r17                  \n\t"  // restore R17
@@ -366,7 +365,7 @@ void SwitcherImpl()
 
               "ret_return:                \n\t"
 
-                "out __SREG__,r31         \n\t"  // restore SREG, must be after the branch
+                "out __SREG__,r31         \n\t"  // restore SREG, must be after the branch because the branch changes SREG
 
                 "pop r31                  \n\t"  // restore R31
                 "pop r17                  \n\t"  // restore R17
@@ -535,7 +534,7 @@ void TerminateTask()
   g_CurrentTask->m_SleepCount = TimeoutInfinite;
   g_ActiveTasks--;
   
-  PauseSwitching();
+  PauseSwitching();  // make sure we do not lose the CPU as we are setup for infinite sleeping ...
   
   SWITCHER_ENABLE_INTERRUPTS();
  
@@ -546,8 +545,11 @@ void TerminateTask()
   {
     SWITCHER_DISABLE_INTERRUPTS();
     
-    waitingList->m_SleepCount = 0;
-    g_ActiveTasks++;
+    if (waitingList->m_SleepCount > 0)
+    {
+      waitingList->m_SleepCount = 0;
+      g_ActiveTasks++;      
+    }
     
     SWITCHER_ENABLE_INTERRUPTS();
     
@@ -852,18 +854,18 @@ Bool IsKnownTask(const Task* task)
   
   PauseSwitching();
   
-  Task* taskList = g_CurrentTask;
+  Task* taskListIter = g_CurrentTask;
   
   do 
   {
-    if (taskList == task)
+    if (taskListIter == task)
     {
       found = TRUE;
       break;
     }
     
-    taskList = taskList->m_pTaskListNext;
-  } while (taskList != g_CurrentTask);
+    taskListIter = taskListIter->m_pTaskListNext;
+  } while (taskListIter != g_CurrentTask);
   
   ResumeSwitching();
   

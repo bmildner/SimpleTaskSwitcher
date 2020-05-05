@@ -11,10 +11,10 @@
 #include "Switcher.h"
 
 
-typedef struct  SyncObject_
+typedef struct  SyncObject_  // all members requires task switcher to be paused
 {
   Task*       m_pWaitingList;       // waiting list head, waiting tasks are sorted by priority (highest first) and FIFO within a given priority
-  // -> first task in waiting list is of the highest priority currently waiting and is the next to aquire
+                                    // -> first task in waiting list is of the highest priority currently waiting and is the next to aquire
   SyncObject* m_pAcquiredListNext;  // acquired list next pointer, next pointer for list of all currently acquired sync objects by current owner
   Task*       m_pCurrentOwner;      // current owner task
 } SyncObject;

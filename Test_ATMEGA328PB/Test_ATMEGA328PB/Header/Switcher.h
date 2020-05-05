@@ -10,6 +10,7 @@
 
 #include <inttypes.h>
 #include <stddef.h>
+#include <assert.h>
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
@@ -138,16 +139,18 @@ typedef struct Task_
   
   uint16_t m_SleepCount;             // remaining number of switcher ticks this task is sleeping, requires IRQ protection
                                      // 0 == active, 0xffff = infinite
-  uint8_t  m_PauseSwitchingCounter;  // tracks number of PauseSwitching calls, allows for nested Pause/Resume blocks
+  uint8_t  m_PauseSwitchingCounter;  // tracks number of PauseSwitching calls, allows for nested Pause/Resume blocks, requires IRQ protection, only use Pause-/ResumeSwitching
 
-  Task*    m_pTaskListNext;          // task list next pointer, ring list
-  Task*    m_pWaitingListNext;       // waiting list next pointer, linear list, task waits for an synchronization object
-  Task*    m_pTaskWaitingList;       // pointer to waiting list, other tasks waiting for this task to terminate
+  Task*    m_pTaskListNext;          // task list next pointer, ring list, requires task switcher to be paused
+  Task*    m_pWaitingListNext;       // waiting list next pointer, linear list, task waits for an synchronization object, requires task switcher to be paused
+  
+  // TODO: do we really need to be able to Join tasks?!? either remove or change to use SyncObject!
+  Task*    m_pTaskWaitingList;       // pointer to task waiting list, other tasks waiting for this task to terminate, requires task switcher to be paused
 
-  SyncObject* m_pAcquiredList;       // list of all currently acquired sync object by this task
+  SyncObject* m_pAcquiredList;       // list of all currently acquired sync object by this task, requires task switcher to be paused
 
-  Priority m_BasePriority;           // assigned base priority
-  Priority m_Priority;               // actual current priority
+  Priority m_BasePriority;           // assigned base priority, requires task switcher to be paused
+  Priority m_Priority;               // actual current priority, requires task switcher to be paused
 
 #if 0
   // stack check only
@@ -160,6 +163,8 @@ typedef void (*TaskFunction)(void*);
 
 extern Task* g_CurrentTask;   // DO NOT TOUCH!
 extern uint8_t g_ActiveTasks; // DO NOT TOUCH!
+
+static_assert(MaxNumberOfTasks == (sizeof(g_ActiveTasks) * 0xff), "Mismatch between MaxNumberOfTasks and sizeof(g_ActiveTasks)");
 
 // 32 register + SREG + extension registers + return address 
 #define SWITCHER_TASK_STATE_SIZE (32 + 1 + SWITCHER_EXTENSION_REGS_SIZE + SWITCHER_RETURN_ADDR_SIZE)
