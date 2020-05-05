@@ -8,7 +8,7 @@
 #ifndef MUTEX_H_
 #define MUTEX_H_
 
-#include "Switcher.h"
+#include "SyncObject.h"
 
 typedef struct
 {

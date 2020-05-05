@@ -187,6 +187,9 @@
     <Compile Include="Header\SwitcherTest.h">
       <SubType>compile</SubType>
     </Compile>
+    <Compile Include="Header\SyncObject.h">
+      <SubType>compile</SubType>
+    </Compile>
     <Compile Include="Source\Main.c">
       <SubType>compile</SubType>
     </Compile>
