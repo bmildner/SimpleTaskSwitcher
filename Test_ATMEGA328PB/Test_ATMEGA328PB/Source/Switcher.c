@@ -130,7 +130,7 @@ void TerminateTaskImpl()
 
 // expects:
 //          register r17 is saved on stack
-//          r17 is loaded with switching source info
+//          r17 is loaded with switching source
 //          interrupts are disabled
 void SwitcherImpl()
 {                                                
@@ -402,23 +402,25 @@ SwitcherResult SwitcherCore(SwitchingSource source, void* stackPointer)
     }
     else
     {
-      Task* taskListEntry = g_CurrentTask->m_pTaskListNext;
+      Task* taskListIter = g_CurrentTask->m_pTaskListNext;
     
-      while (taskListEntry != g_CurrentTask)
+      while (taskListIter != g_CurrentTask)
       {
         SWITCHER_DISABLE_INTERRUPTS();
       
-        if (taskListEntry->m_SleepCount == 0)
+        if (taskListIter->m_SleepCount == 0)
         {
-          if ((nextTask == g_CurrentTask) || (nextTask->m_Priority < taskListEntry->m_Priority))
+          if ((nextTask == g_CurrentTask) || (nextTask->m_Priority < taskListIter->m_Priority))
           {
-            nextTask = taskListEntry;
+            nextTask = taskListIter;
           }
         }
       
         SWITCHER_ENABLE_INTERRUPTS();
       
-        taskListEntry = taskListEntry->m_pTaskListNext;
+        taskListIter = taskListIter->m_pTaskListNext;
+        
+        SWITCHER_ASSERT(taskListIter != NULL);
       }  // while
     }  // else
     
@@ -428,16 +430,16 @@ SwitcherResult SwitcherCore(SwitchingSource source, void* stackPointer)
       SWITCHER_ASSERT(nextTask != g_CurrentTask)
       
       // remove task from task list
-      Task* taskListEntry = g_CurrentTask->m_pTaskListNext;
+      Task* taskListIter = g_CurrentTask->m_pTaskListNext;
       
-      while (taskListEntry->m_pTaskListNext != g_CurrentTask)
+      while (taskListIter->m_pTaskListNext != g_CurrentTask)
       {
-        taskListEntry = taskListEntry->m_pTaskListNext;
+        taskListIter = taskListIter->m_pTaskListNext;
       }      
       
-      SWITCHER_ASSERT(taskListEntry->m_pTaskListNext == g_CurrentTask)
+      SWITCHER_ASSERT(taskListIter->m_pTaskListNext == g_CurrentTask)
       
-      taskListEntry->m_pTaskListNext = g_CurrentTask->m_pTaskListNext;
+      taskListIter->m_pTaskListNext = g_CurrentTask->m_pTaskListNext;
       
       g_Tasks--;
       
@@ -564,14 +566,18 @@ void TerminateTask()
 void Sleep(Timeout timeout)
 {
   if (timeout > TimeoutNone)
-  {    
+  {
+    PauseSwitching();
+    
     SWITCHER_DISABLE_INTERRUPTS();
   
     g_CurrentTask->m_SleepCount = timeout;
     
-    Yield();
-    
     SWITCHER_ENABLE_INTERRUPTS();
+    
+    Yield();    
+    
+    ResumeSwitching();
   }
   else
   {
@@ -581,18 +587,27 @@ void Sleep(Timeout timeout)
 
 void Yield()
 {
-  SWITCHER_DISABLE_INTERRUPTS();
+  SWITCHER_DISABLE_INTERRUPTS();  
   
-  if (g_CurrentTask->m_SleepCount < TimeoutMaximum)
+  if (g_CurrentTask != &g_IdleTask)
   {
-    g_CurrentTask->m_SleepCount++;
+    if (g_CurrentTask->m_SleepCount < TimeoutMaximum)
+    {
+      g_CurrentTask->m_SleepCount++;
+    }
+  
+    SWITCHER_ASSERT(g_ActiveTasks > 0);
+    
+    g_ActiveTasks--;
   }
-  
-  g_ActiveTasks--;
-  
+  else
+  {
+    g_CurrentTask->m_SleepCount = 0;  // the idle task never really sleeps and is not accounted for in g_ActiveTasks counter!
+  }
+    
   asm volatile ("call YieldImpl" ::: "memory");  // saves two instructions, push/pop
   //YieldImpl();
-  
+
   SWITCHER_ENABLE_INTERRUPTS();
 }
 
@@ -660,6 +675,8 @@ static void IdleTask(void* param)
 {
   (void)param;
   
+  SWITCHER_ASSERT(param == NULL);
+  
   while (TRUE)
   {
     // TODO: implement ...
@@ -726,10 +743,12 @@ SwitcherError AddTask(Task* task,
   SWITCHER_ASSERT(stackSize >= SWITCHER_TASK_STATE_MIN_STACK_SIZE);
   static_assert(sizeof(InitialTaskState) == SWITCHER_TASK_STATE_MIN_STACK_SIZE, "sizeof(InitialTaskState) must be equal to SWITCHER_TASK_STATE_MIN_STACK_SIZE");
 
+  const Bool isIdleTask = (task == &g_IdleTask);
+  
   if ((task == NULL) ||
       (stackBuffer == NULL) ||
       (taskFunction == NULL) ||
-      ((priority < PriorityLowest) && (task != &g_IdleTask)) ||
+      ((priority < PriorityLowest) && !isIdleTask) ||
       (stackSize < sizeof(InitialTaskState)))  // TODO: check for better minimal stack size
   {
     return SwitcherInvalidParameter;
@@ -753,7 +772,7 @@ SwitcherError AddTask(Task* task,
   pInitialTaskState->m_TaskFunctionAddress = taskFunction;
   pInitialTaskState->m_TaskFunctionParameter = taskParameter;
 
-  task->m_pStackPointer = pInitialTaskState - 1;  // SP points to first free slot
+  task->m_pStackPointer = pInitialTaskState;  // we always store the SP pointing to the last saved byte!
   task->m_BasePriority = priority;
   task->m_Priority = priority;
 #if 0  // for stack check only 
@@ -773,14 +792,21 @@ SwitcherError AddTask(Task* task,
   
   g_Tasks++;
   
-  SWITCHER_DISABLE_INTERRUPTS();
-  g_ActiveTasks++;
-  SWITCHER_ENABLE_INTERRUPTS();
+  if (!isIdleTask)  // idle task does not count as active task
+  {
+    SWITCHER_DISABLE_INTERRUPTS();
+    g_ActiveTasks++;
+    SWITCHER_ENABLE_INTERRUPTS();
+  }
+
+  // give away the CPU if the new task has higher priority then we have
+  if (priority > g_CurrentTask->m_Priority)
+  {
+    Yield();
+  }
   
   ResumeSwitching();
-        
-  // TODO: Yield() ?!?!?!? will not neccesarrily switch to new task due to priority!
-  
+
   return SwitcherNoError;
 }
 
