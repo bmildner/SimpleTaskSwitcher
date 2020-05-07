@@ -7,6 +7,8 @@
 
 #include "Switcher.h"
 
+#include <avr/sleep.h>
+
 #include <inttypes.h>
 #include <string.h>
 #include <stddef.h>
@@ -26,7 +28,7 @@ typedef struct
 } SwitcherResult;
 
 
-Task* g_CurrentTask = NULL;
+Task* g_CurrentTask = NULL;  // requires task switcher to be paused
 
 static uint8_t g_Tasks = 0; // total number of tasks excl. IdleTask, requires task switcher to be paused
 uint8_t g_ActiveTasks = 0;  // number of currently active task excl. IdleTask, requires IRQ protection!
@@ -75,8 +77,9 @@ static inline Task* SwitcherTickCore();
                 :: [src] "i"(source))
 
 __attribute__((used))
-static void TaskStartup();
+static void TaskStartup(TaskFunction taskFunction, void* taskParameter);
 
+typedef void (*TaskStartupFunctionPointer) (TaskFunction, void*);
 
 ISR(SWITCHER_FORCED_SWITCH_VECTOR, ISR_NAKED)
 {
@@ -246,10 +249,10 @@ void SwitcherImpl()
                 "st -y,r3               \n\t"
                 "st -y,r2               \n\t"
 
-                // TODO: call SwitcherStackCheck if stack check is enabled!
+                // TODO: call SwitcherStackCheck if stack check is enabled! ptr to prev task in r24+r25
                  
 #ifdef  __AVR_HAVE_MOVW__
-                "movw r28,r24           \n\t"  // move returned new stack pointer into Y
+                "movw r28,r22           \n\t"  // move returned new stack pointer into Y
 #else
                 "mov r28,r24            \n\t"
                 "mov r29,r25            \n\t"
@@ -381,36 +384,58 @@ void SwitcherImpl()
 // this avoids incrementing and/or decrementing the SP during saving and restoring registers
 SwitcherResult SwitcherCore(SwitchingSource source, void* stackPointer)
 {
+  SWITCHER_ASSERT(g_CurrentTask != NULL);
+  SWITCHER_ASSERT(g_CurrentTask->m_pTaskListNext != NULL);
+  
   SwitcherResult result = {.m_PreviousTask = g_CurrentTask};
-  Task* nextTask = g_CurrentTask;
+  Task* nextTask = NULL;
   Bool done = FALSE;
 
-  if (source != SwitcherTick)  
-  {
-    ResetPreemptiveSwitchTimer();
-  }
-
   while (!done)
-  {
+  {    
     if (source == SwitcherTick)
-    {
+    {      
       Task* nextTaskCandidate = SwitcherTickCore();
-      if (nextTask->m_Priority < nextTaskCandidate->m_Priority)
+            
+      if (nextTaskCandidate != g_CurrentTask)
+      {        
+        if ((nextTask == NULL) || (nextTask->m_Priority < nextTaskCandidate->m_Priority))
+        {
+          nextTask = nextTaskCandidate;
+        }          
+      }
+      else
       {
-        nextTask = nextTaskCandidate;
-      }        
+        if (nextTask == NULL)
+        {
+          nextTask = g_CurrentTask;
+        }
+      }
+      
+      SWITCHER_ASSERT(nextTask != NULL);
     }
-    else
+    else  // source is either Yielded or PreemptiveSwitch or ForcedSwitch or TerminatingTask
     {
+      // reset counter timer for preemptive task switches to start a new CPU slice
+      ResetPreemptiveSwitchTimer();
+      
+      if (nextTask == NULL)
+      {
+        nextTask = &g_IdleTask;
+      } 
+           
       Task* taskListIter = g_CurrentTask->m_pTaskListNext;
     
-      while (taskListIter != g_CurrentTask)
+      // find next task == find first next none sleeping task with the highest priority
+      do
       {
+        SWITCHER_ASSERT(taskListIter != NULL);
+        
         SWITCHER_DISABLE_INTERRUPTS();
       
         if (taskListIter->m_SleepCount == 0)
         {
-          if ((nextTask == g_CurrentTask) || (nextTask->m_Priority < taskListIter->m_Priority))
+          if (nextTask->m_Priority < taskListIter->m_Priority)
           {
             nextTask = taskListIter;
           }
@@ -419,15 +444,16 @@ SwitcherResult SwitcherCore(SwitchingSource source, void* stackPointer)
         SWITCHER_ENABLE_INTERRUPTS();
       
         taskListIter = taskListIter->m_pTaskListNext;
-        
-        SWITCHER_ASSERT(taskListIter != NULL);
-      }  // while
-    }  // else
+      } while (taskListIter != g_CurrentTask->m_pTaskListNext);
+    }
+
+    SWITCHER_ASSERT(nextTask != NULL);
     
+    // we already found the next task to execute, we just need to remove the current task from the task list
     if (source == TerminatingTask)
     {
-      SWITCHER_ASSERT(result.m_PreviousTask = g_CurrentTask)
-      SWITCHER_ASSERT(nextTask != g_CurrentTask)
+      SWITCHER_ASSERT(g_CurrentTask->m_SleepCount == TimeoutInfinite);
+      SWITCHER_ASSERT(nextTask != g_CurrentTask);
       
       // remove task from task list
       Task* taskListIter = g_CurrentTask->m_pTaskListNext;
@@ -435,20 +461,18 @@ SwitcherResult SwitcherCore(SwitchingSource source, void* stackPointer)
       while (taskListIter->m_pTaskListNext != g_CurrentTask)
       {
         taskListIter = taskListIter->m_pTaskListNext;
-      }      
+      }
       
       SWITCHER_ASSERT(taskListIter->m_pTaskListNext == g_CurrentTask)
       
       taskListIter->m_pTaskListNext = g_CurrentTask->m_pTaskListNext;
       
-      g_Tasks--;
+      SWITCHER_ASSERT(g_Tasks > 0);
       
-      // do not check for pending switcher IRQs
-      done = TRUE;
-      continue;
+      g_Tasks--;
     }
-
-    // check for pending switch IRQs, avoid exit and immediate re-entry of switcher implementation
+    
+    // check for pending switcher IRQs, avoid exit and immediate re-entry of switcher implementation
     if (IsSwitcherTickPending())
     {
       ResetSwitcherTickIrqFlag();
@@ -470,15 +494,15 @@ SwitcherResult SwitcherCore(SwitchingSource source, void* stackPointer)
     }
   }  // while
 
+  SWITCHER_ASSERT(nextTask != NULL);
+  
   if (nextTask != g_CurrentTask)
   {
     g_CurrentTask->m_pStackPointer = stackPointer - 15;
-    
-    SWITCHER_DISABLE_INTERRUPTS();
+        
     g_CurrentTask = nextTask;
-    SWITCHER_ENABLE_INTERRUPTS();
     
-    result.m_NewSP = g_CurrentTask->m_pStackPointer;
+    result.m_NewSP = nextTask->m_pStackPointer;
   }
   else
   {
@@ -488,6 +512,8 @@ SwitcherResult SwitcherCore(SwitchingSource source, void* stackPointer)
   return result;
 }
 
+// returns newly awoke task that has a higher priority than the current task, 
+// returns the current task if there is none
 Task* SwitcherTickCore()
 {
   // 64 bit arithmetic produces horrible code (especially within an ISR!)
@@ -499,31 +525,31 @@ Task* SwitcherTickCore()
     g_TickCount.m_TickCountHigh++;
   }
   
-  Task* taskListEntry = g_CurrentTask->m_pTaskListNext;
+  Task* taskListIter = g_CurrentTask->m_pTaskListNext;
   Task* nextTask = g_CurrentTask;
   
-  while (taskListEntry != g_CurrentTask)
+  while (taskListIter != g_CurrentTask)
   {
     SWITCHER_DISABLE_INTERRUPTS();
     
-    if ((taskListEntry->m_SleepCount > 0) && (taskListEntry->m_SleepCount < TimeoutInfinite))
+    if ((taskListIter->m_SleepCount > 0) && (taskListIter->m_SleepCount < TimeoutInfinite))
     {
-      taskListEntry->m_SleepCount--;
+      taskListIter->m_SleepCount--;
       
-      if (taskListEntry->m_SleepCount == 0)
+      if (taskListIter->m_SleepCount == 0)
       {
         g_ActiveTasks++;        
         
-        if (taskListEntry->m_Priority > nextTask->m_Priority)
+        if (taskListIter->m_Priority > nextTask->m_Priority)
         {
-          nextTask = taskListEntry;
+          nextTask = taskListIter;
         }          
       }
     }
     
     SWITCHER_ENABLE_INTERRUPTS();
 
-    taskListEntry = taskListEntry->m_pTaskListNext;
+    taskListIter = taskListIter->m_pTaskListNext;
   }
     
   return nextTask; 
@@ -676,10 +702,27 @@ static void IdleTask(void* param)
   (void)param;
   
   SWITCHER_ASSERT(param == NULL);
+  SWITCHER_ASSERT(g_CurrentTask->m_Priority == PriorityIdle);  
+  SWITCHER_ASSERT(g_CurrentTask->m_BasePriority == PriorityIdle);
   
   while (TRUE)
   {
-    // TODO: implement ...
+    set_sleep_mode(SLEEP_MODE_IDLE);
+    
+    cli();
+    
+    if (g_ActiveTasks == 0)
+    {
+      sleep_enable();
+      sei();
+      // sleep_cpu();  hmmm sleep seems to crash the simulator in Atmel Studio 7.0.2397 ...
+      sleep_disable();
+    }
+    else
+    {
+      sei();
+    }
+    
     Yield();
   }
 }
@@ -729,15 +772,13 @@ SwitcherError AddTask(Task* task,
   // the TaskStartup function, additionally the task functions address and its parameter are on the stack
   typedef struct  
   {
-    uint8_t m_Registers[SWITCHER_TASK_STATE_SIZE - SWITCHER_RETURN_ADDR_SIZE];
+    uint8_t                    m_Registers[SWITCHER_TASK_STATE_SIZE - SWITCHER_RETURN_ADDR_SIZE];
 
 #if SWITCHER_RETURN_ADDR_SIZE > 2
-    uint8_t m_ReturnAddressPadding[SWITCHER_RETURN_ADDR_SIZE - 2];
+    uint8_t                    m_ReturnAddressPadding[SWITCHER_RETURN_ADDR_SIZE - 2];
 #endif
     
-    void (*m_ReturnAddress)(void);  // return address from initial "task switch" to task startup function
-    void* m_TaskFunctionParameter;
-    TaskFunction m_TaskFunctionAddress;
+    TaskStartupFunctionPointer m_ReturnAddress;  // return address from initial "task switch" to task startup function
   } InitialTaskState;
   
   SWITCHER_ASSERT(stackSize >= SWITCHER_TASK_STATE_MIN_STACK_SIZE);
@@ -764,14 +805,22 @@ SwitcherError AddTask(Task* task,
     return SwitcherTooManyTasks;
   }
   
-  InitialTaskState* pInitialTaskState = stackBuffer + ((stackSize - 1) - sizeof(InitialTaskState));
+  InitialTaskState* pInitialTaskState = stackBuffer + ((stackSize - 1) - (sizeof(InitialTaskState) - 1));
     
   memset(pInitialTaskState, 0x00, sizeof(InitialTaskState));
   
-  pInitialTaskState->m_ReturnAddress = &TaskStartup;
-  pInitialTaskState->m_TaskFunctionAddress = taskFunction;
-  pInitialTaskState->m_TaskFunctionParameter = taskParameter;
-
+  // we need to byte swap the return address!
+  pInitialTaskState->m_ReturnAddress = (TaskStartupFunctionPointer) ((((uintptr_t) &TaskStartup) >> 8) | (((uintptr_t) &TaskStartup) << 8));
+  
+  // place pointer to task function and task parameter in register according to ABI
+  // -> task function in R24:R25, R24 is at offset (sizeof(m_Registers) - 1) - (9 + SWITCHER_RAMPZ_SIZE + SWITCHER_RAMPY_SIZE), R25 at offset (8 + SWITCHER_RAMPZ_SIZE + SWITCHER_RAMPY_SIZE)
+  // -> task parameter in R22:R23, R22 is at offset (sizeof(m_Registers) - 1) - (11 + SWITCHER_RAMPZ_SIZE + SWITCHER_RAMPY_SIZE), R23 at offset (10 + SWITCHER_RAMPZ_SIZE + SWITCHER_RAMPY_SIZE)  
+  pInitialTaskState->m_Registers[(sizeof(pInitialTaskState->m_Registers) - 1) - (9 + SWITCHER_RAMPZ_SIZE + SWITCHER_RAMPY_SIZE)] = (uint8_t)((uintptr_t)taskFunction);       // R24
+  pInitialTaskState->m_Registers[(sizeof(pInitialTaskState->m_Registers) - 1) - (8 + SWITCHER_RAMPZ_SIZE + SWITCHER_RAMPY_SIZE)] = (uint8_t)((uintptr_t)taskFunction >> 8);  // R25
+  
+  pInitialTaskState->m_Registers[(sizeof(pInitialTaskState->m_Registers) - 1) - (11 + SWITCHER_RAMPZ_SIZE + SWITCHER_RAMPY_SIZE)] = (uint8_t)((uintptr_t)taskParameter);      // R22
+  pInitialTaskState->m_Registers[(sizeof(pInitialTaskState->m_Registers) - 1) - (10 + SWITCHER_RAMPZ_SIZE + SWITCHER_RAMPY_SIZE)] = (uint8_t)((uintptr_t)taskParameter >> 8); // R23
+  
   task->m_pStackPointer = pInitialTaskState;  // we always store the SP pointing to the last saved byte!
   task->m_BasePriority = priority;
   task->m_Priority = priority;
@@ -810,23 +859,14 @@ SwitcherError AddTask(Task* task,
   return SwitcherNoError;
 }
 
-void TaskStartup()
+void TaskStartup(TaskFunction taskFunction, void* taskParameter)
 {
-  TaskFunction taskFunction;
-  void* taskParameter;
-  
-  // get task function address and parameter from stack
-  asm volatile ("pop %B[param] \n\t"
-                "pop %A[param] \n\t"
-                "pop %B[func]  \n\t"
-                "pop %A[func]  \n\t"
-                : [param] "=e" (taskParameter), [func] "=e" (taskFunction));
-
   taskFunction(taskParameter);  // call task function
   
   TerminateTask();
     
   // WE SHOULD NEVER EVER REACH THIS POINT!
+  SWITCHER_ASSERT(TRUE == FALSE);
 }
 
 SwitcherError JoinTask(Task* task, Timeout timeout)

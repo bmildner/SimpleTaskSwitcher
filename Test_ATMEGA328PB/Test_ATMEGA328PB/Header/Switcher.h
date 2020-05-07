@@ -166,11 +166,13 @@ extern uint8_t g_ActiveTasks; // DO NOT TOUCH!
 
 static_assert(MaxNumberOfTasks == (sizeof(g_ActiveTasks) * 0xff), "Mismatch between MaxNumberOfTasks and sizeof(g_ActiveTasks)");
 
+// TODO: check if SWITCHER_TASK_STATE_SIZE and SWITCHER_TASK_STATE_MIN_STACK_SIZE are correct if we have (SWITCHER_RETURN_ADDR_SIZE > 2)!!!
+
 // 32 register + SREG + extension registers + return address 
 #define SWITCHER_TASK_STATE_SIZE (32 + 1 + SWITCHER_EXTENSION_REGS_SIZE + SWITCHER_RETURN_ADDR_SIZE)
 
 // task state + call into task function + address of task function + parameter for task function
-#define SWITCHER_TASK_STATE_MIN_STACK_SIZE (SWITCHER_TASK_STATE_SIZE + sizeof(TaskFunction) + sizeof(void*))
+#define SWITCHER_TASK_STATE_MIN_STACK_SIZE (SWITCHER_TASK_STATE_SIZE)
 
 SwitcherError Initialize(Task* mainTask);
 
