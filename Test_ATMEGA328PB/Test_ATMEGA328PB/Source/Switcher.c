@@ -715,7 +715,7 @@ static void IdleTask(void* param)
     {
       sleep_enable();
       sei();
-//      sleep_cpu();  // TODO: hmmm sleep seems to crash the simulator in Atmel Studio 7.0.2397 ...
+      sleep_cpu();  // TODO: hmmm sleep seems to crash the simulator in Atmel Studio 7.0.2397 ...
       sleep_disable();
     }
     else

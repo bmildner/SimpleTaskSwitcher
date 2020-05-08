@@ -52,7 +52,7 @@ int main(void)
     
     while (TRUE) 
     {      
-      SwitcherTestSuite();
+//      SwitcherTestSuite();
       Sleep(1);
     }
 }
