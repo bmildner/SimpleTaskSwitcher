@@ -31,8 +31,6 @@ static void EnablesSREG_I(TrampolinFunction function);
 
 static Bool AreSwitcherIRQsEnabled();
 
-static Bool AreSwitcherIRQsDisabled();
-
 #define ASM_BREAK_LOOP_IF_NOT_EQUAL           \
                 "breq .+4              \n\t"  \
                 "break                 \n\t"  \
@@ -447,24 +445,13 @@ void EnablesSREG_I(TrampolinFunction function)
 Bool AreSwitcherIRQsEnabled()
 {
   if (((TIMSK2 & ((1 << OCIE2A) | (1 << OCIE2B))) != ((1 << OCIE2A) | (1 << OCIE2B))) ||
-      ((PCMSK3 & (1 << PCINT25)) == 0))
+      ((PCMSK3 & (1 << PCINT25)) != (1 << PCINT25)))
   {
     return FALSE;
   } 
   
   return TRUE;
 }  
-
-Bool AreSwitcherIRQsDisabled()
-{
-  if (((TIMSK2 & ((1 << OCIE2A) | (1 << OCIE2B))) != 0) ||
-      ((PCMSK3 & (1 << PCINT25)) != 0))
-    {
-      return FALSE;
-    }
-    
-    return TRUE;
-}
 
 // ********************** Tests for Tests **********************
 
@@ -560,14 +547,25 @@ static void PauseSwitchingTrampolin()
   asm volatile ("ret");
 }
 
+// TODO: combine Pause/ResumeSwitching test ...
 static void PauseSwitchingTest_OK()
 {
-  TIMSK2 |= (1 << OCIE2A) | (1 << OCIE2B);
-  PCMSK3 |= (1 << PCINT25);
+  // force switcher IRQs to on
+  //TIMSK2 |= (1 << OCIE2A) | (1 << OCIE2B);
+  //PCMSK3 |= (1 << PCINT25);
+  
+  // we expect the switcher IRQs to be enabled when called, otherwise test will not work
+  if (!AreSwitcherIRQsEnabled())
+  {
+    while (TRUE)
+    {
+      asm volatile ("break");
+    }
+  }
   
   PauseSwitching();
   
-  if (!AreSwitcherIRQsDisabled())
+  if (AreSwitcherIRQsEnabled())
   {
     while (TRUE)
     {
@@ -577,7 +575,7 @@ static void PauseSwitchingTest_OK()
   
   PauseSwitching();
 
-  if (!AreSwitcherIRQsDisabled())
+  if (AreSwitcherIRQsEnabled())
   {
     while (TRUE)
     {
@@ -587,7 +585,7 @@ static void PauseSwitchingTest_OK()
   
   ResumeSwitching();  
 
-  if (!AreSwitcherIRQsDisabled())
+  if (AreSwitcherIRQsEnabled())
   {
     while (TRUE)
     {
@@ -596,6 +594,14 @@ static void PauseSwitchingTest_OK()
   }
 
   ResumeSwitching();
+  
+  if (!AreSwitcherIRQsEnabled())
+  {
+    while (TRUE)
+    {
+      asm volatile ("break");
+    }
+  }  
 }
 
 static void PauseSwitchingTest()
@@ -617,10 +623,28 @@ static void ResumeSwitchingTrampolin()
 
 static void ResumeSwitchingTest_OK()
 {
+  // we expect switcher IRQs to be enabled initially, otherwise test will fail
+  if (!AreSwitcherIRQsEnabled())
+  {
+    while (TRUE)
+    {
+      asm volatile ("break");
+    }
+  }
+  
   PauseSwitching();
   
-  TIMSK2 &= ~((1 << OCIE2A) | (1 << OCIE2B));
-  PCMSK3 &= ~(1 << PCINT25);
+  // force switcher IRQs to disable
+  //TIMSK2 &= ~((1 << OCIE2A) | (1 << OCIE2B));
+  //PCMSK3 &= ~(1 << PCINT25);
+
+  if (AreSwitcherIRQsEnabled())
+  {
+    while (TRUE)
+    {
+      asm volatile ("break");
+    }
+  }
   
   ResumeSwitching();
 
@@ -633,11 +657,28 @@ static void ResumeSwitchingTest_OK()
   }
   
   PauseSwitching();
+  
+  if (AreSwitcherIRQsEnabled())
+  {
+    while (TRUE)
+    {
+      asm volatile ("break");
+    }
+  }
+  
   PauseSwitching();
+
+  if (AreSwitcherIRQsEnabled())
+  {
+    while (TRUE)
+    {
+      asm volatile ("break");
+    }
+  }
   
   ResumeSwitching();
   
-  if (!AreSwitcherIRQsDisabled())
+  if (AreSwitcherIRQsEnabled())
   {
     while (TRUE)
     {
@@ -708,7 +749,7 @@ void SwitcherTestSuite()
       
   YieldTest();
       
-  PauseSwitchingTest();
+ PauseSwitchingTest();
   ResumeSwitchingTest();
       
   AddTaskTest();

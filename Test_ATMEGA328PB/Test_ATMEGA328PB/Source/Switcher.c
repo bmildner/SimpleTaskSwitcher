@@ -715,7 +715,7 @@ static void IdleTask(void* param)
     {
       sleep_enable();
       sei();
-      // sleep_cpu();  hmmm sleep seems to crash the simulator in Atmel Studio 7.0.2397 ...
+//      sleep_cpu();  // TODO: hmmm sleep seems to crash the simulator in Atmel Studio 7.0.2397 ...
       sleep_disable();
     }
     else
@@ -748,14 +748,14 @@ SwitcherError Initialize(Task* mainTask)
   g_Tasks = 1;
   g_ActiveTasks = 1;
   
-  PauseSwitching();
+  PauseSwitching();  // switcher IRQs should be disabled here anyways ...
   
   SWITCHER_ENABLE_INTERRUPTS();
 
   // add idle task
   AddTask(&g_IdleTask, g_IdleTaskStackBuffer, sizeof(g_IdleTaskStackBuffer), &IdleTask, NULL, PriorityIdle);
 
-  ResumeSwitching();
+  ResumeSwitching();  // initially enables switcher IRQs
   
   return SwitcherNoError;
 }
