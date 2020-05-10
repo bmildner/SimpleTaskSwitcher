@@ -646,8 +646,16 @@ void PauseSwitchingImpl()
                 "cli                           \n\t"  // disable interrupts
                                  
                 "ldd r19,z + %[counterOffset]  \n\t"  // load m_PauseSwitchingCounter into r19
-                 
-                // TODO: add test for overrun in debug builds
+
+#ifdef DEBUG
+                // pause switching counter must not be at max value (x0ff)
+                "cpi r19, 0xff                 \n\t"
+                "brne notmax                   \n\t"
+                "break                         \n\t"
+                "notmax:                       \n\t"
+
+#endif
+
                 "inc r19                       \n\t"  // increment m_PauseSwitchingCounter
                 
                 "std z + %[counterOffset],r19  \n\t"  // save m_PauseSwitchingCounter
@@ -676,8 +684,15 @@ void ResumeSwitchingImpl()
                 "cli                           \n\t"  // disable interrupts
 
                 "ldd r19,z + %[counterOffset]  \n\t"  // load m_PauseSwitchingCounter into r19
-                
-                // TODO: add test for underruns in debug builds 
+
+#ifdef DEBUG
+                // pause switching counter must not be zero
+                "cp r19, __zero_reg__          \n\t"
+                "brne notzero                  \n\t"
+                "break                         \n\t"
+                "notzero:                      \n\t"
+#endif
+
                 "dec r19                       \n\t"  // decrement m_PauseSwitchingCounter
                 
                 "std z + %[counterOffset],r19  \n\t"  // save m_PauseSwitchingCounter

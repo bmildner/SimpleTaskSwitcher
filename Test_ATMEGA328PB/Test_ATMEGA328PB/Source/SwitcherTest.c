@@ -14,7 +14,7 @@
 #define TO_STRING(x) __STRINGIFY(x)
 
 
-static uint8_t testStack[SWITCHER_TASK_STATE_MIN_STACK_SIZE + 10];
+static uint8_t testStack[SWITCHER_TASK_STATE_MIN_STACK_SIZE * 2];  // TODO: correctly size test stack
 
 typedef void (*TrampolinFunction)();
 
@@ -609,6 +609,8 @@ static void PauseSwitchingTest()
   PauseSwitchingTest_OK();
   
   PreservesSREG_I(&PauseSwitchingTrampolin);
+  ResumeSwitching();
+  ResumeSwitching();
 }
 
 // ********************** ResumeSwitching **********************
@@ -701,6 +703,8 @@ static void ResumeSwitchingTest()
 {
   ResumeSwitchingTest_OK();
   
+  PauseSwitching();
+  PauseSwitching();
   PreservesSREG_I(&ResumeSwitchingTrampolin);
 }
 
@@ -722,7 +726,7 @@ static void AddTaskTrumpolin()
 
 static void AddTaskTest()
 {
-  if (!AddTask(&g_TestTask, testStack, sizeof(testStack), (TaskFunction) 0xabcd, (void*) 0xdead, PriorityNormal))
+  if (AddTask(&g_TestTask, testStack, sizeof(testStack), (TaskFunction) 0xabcd, (void*) 0xdead, PriorityNormal) != SwitcherNoError)
   {
     while (TRUE)
     {
@@ -749,7 +753,7 @@ void SwitcherTestSuite()
       
   YieldTest();
       
- PauseSwitchingTest();
+  PauseSwitchingTest();
   ResumeSwitchingTest();
       
   AddTaskTest();

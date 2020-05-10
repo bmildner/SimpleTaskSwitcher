@@ -164,6 +164,8 @@ typedef void (*TaskFunction)(void*);
 extern Task* g_CurrentTask;   // DO NOT TOUCH!
 extern uint8_t g_ActiveTasks; // DO NOT TOUCH!
 
+static_assert(sizeof(g_CurrentTask->m_SleepCount) == sizeof(Timeout), "Task.m_SleepCount must have same size as Timeout type");
+
 static_assert(MaxNumberOfTasks == (sizeof(g_ActiveTasks) * 0xff), "Mismatch between MaxNumberOfTasks and sizeof(g_ActiveTasks)");
 
 // TODO: check if SWITCHER_TASK_STATE_SIZE and SWITCHER_TASK_STATE_MIN_STACK_SIZE are correct if we have (SWITCHER_RETURN_ADDR_SIZE > 2)!!!
