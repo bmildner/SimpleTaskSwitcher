@@ -1,5 +1,5 @@
 /*
- * Test_ATMEGA328PB.c
+ * Main.c
  *
  * Created: 15.02.2019 11:36:55
  * Author : Berti
@@ -36,7 +36,7 @@ static void InitHardware()
   // setup PCI3 as forced switching IRQ, pin PE1
   DDRE = (1 << DDRE1);
   PCICR = (1 << PCIE3);
-  //PCMSK3 = (1 << PCINT25);  enable IRQs during switcher initialization
+  //PCMSK3 = (1 << PCINT25);  enable IRQ during switcher initialization
 }
 
 Task g_MainTask;
