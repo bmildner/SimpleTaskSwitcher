@@ -84,22 +84,19 @@ static inline Bool IsSwitcherTickPending()
 __attribute__((always_inline))
 static inline void ResetPreemptiveSwitchIrqFlag()
 {
-  TIFR2 |= (1 << OCF2B);  // This will only generate valid code IF TIFR2 is in the lower I/O register range!!!
-  //TIFR2 = (1 << OCF2B);
+  TIFR2 = (1 << OCF2B);
 }
 
 __attribute__((always_inline))
 static inline void ResetSwitcherTickIrqFlag()
 {
-    TIFR2 |= (1 << OCF2A);  // This will only generate valid code IF TIFR2 is in the lower I/O register range!!!
-    //TIFR2 = (1 << OCF2A);  
+    TIFR2 = (1 << OCF2A);  
 }
 
 __attribute__((always_inline))
 static inline void ResetForcedSwitchIrqFlag()
 {
-  PCIFR |= (1 << PCIF3);  // This will only generate valid code IF PCIFR is in the lower I/O register range!!!
-  //PCIFR = (1 << PCIF3);
+  PCIFR = (1 << PCIF3);
 }
 
 // Resets preemptive switching timer interval (set compare register to current counter value) and

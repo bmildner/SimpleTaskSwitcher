@@ -16,20 +16,21 @@
     <Name>Test_ATMEGA328PB</Name>
     <RootNamespace>Test_ATMEGA328PB</RootNamespace>
     <ToolchainFlavour>Native</ToolchainFlavour>
-    <KeepTimersRunning>true</KeepTimersRunning>
+    <KeepTimersRunning>false</KeepTimersRunning>
     <OverrideVtor>false</OverrideVtor>
     <CacheFlash>true</CacheFlash>
     <ProgFlashFromRam>true</ProgFlashFromRam>
     <RamSnippetAddress>0x20000000</RamSnippetAddress>
     <UncachedRange />
-    <preserveEEPROM>true</preserveEEPROM>
+    <preserveEEPROM>false</preserveEEPROM>
     <OverrideVtorValue>exception_table</OverrideVtorValue>
     <BootSegment>2</BootSegment>
     <ResetRule>0</ResetRule>
     <eraseonlaunchrule>0</eraseonlaunchrule>
     <EraseKey />
     <avrtool>com.atmel.avrdbg.tool.simulator</avrtool>
-    <avrtoolserialnumber />
+    <avrtoolserialnumber>
+    </avrtoolserialnumber>
     <avrdeviceexpectedsignature>0x1E9516</avrdeviceexpectedsignature>
     <custom>
       <ToolOptions>
@@ -43,7 +44,8 @@
       </ToolNumber>
       <ToolName>Custom Programming Tool</ToolName>
     </custom>
-    <avrtoolinterface />
+    <avrtoolinterface>
+    </avrtoolinterface>
     <com_atmel_avrdbg_tool_simulator>
       <ToolOptions xmlns="">
         <InterfaceProperties>
@@ -83,6 +85,16 @@
         </DebugFile>
       </AAFDebugFiles>
     </AAFDebugger>
+    <com_atmel_avrdbg_tool_jtagicemkii>
+      <ToolOptions>
+        <InterfaceProperties>
+        </InterfaceProperties>
+        <InterfaceName>debugWIRE</InterfaceName>
+      </ToolOptions>
+      <ToolType>com.atmel.avrdbg.tool.jtagicemkii</ToolType>
+      <ToolNumber>00B00000272B</ToolNumber>
+      <ToolName>JTAGICE mkII</ToolName>
+    </com_atmel_avrdbg_tool_jtagicemkii>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
     <ToolchainSettings>

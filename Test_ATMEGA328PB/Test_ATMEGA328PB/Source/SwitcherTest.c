@@ -61,11 +61,15 @@ void PreservesFullState(TrampolinFunction function)
                 "push r28              \n\t"
                 "push r29              \n\t"
 
+                /* save SREG */
+                "in r16, __SREG__      \n\t"
+                "push r16              \n\t"
+
                 "movw r30,r24          \n\t"  // move function ptr argument into Z
                 
                 "push r30              \n\t"  // save function ptr on stack
                 "push r31              \n\t"
-                
+
                 /* setup SREG */
                 "ldi r16,%[sreg_value] \n\t"
                 "out __SREG__,r16      \n\t"
@@ -215,6 +219,10 @@ void PreservesFullState(TrampolinFunction function)
                 ASM_BREAK_LOOP_IF_NOT_EQUAL
                 "cp r31,r17            \n\t"
                 ASM_BREAK_LOOP_IF_NOT_EQUAL
+
+                /* restore SREG */
+                "pop r16               \n\t"
+                "out __SREG__, r16     \n\t"
 
                 /* restore registers according to ABI */
                 "pop r29               \n\t"
