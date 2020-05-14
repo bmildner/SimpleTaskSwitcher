@@ -13,6 +13,9 @@
 
 #include "Switcher.h"
 
+// TOP value for switcher tick and preemptive switch timer
+#define SWITCHER_TIMER_TOP 39
+
 // IRQ for preemptive task switch
 #define SWITCHER_PREEMPTIVE_SWITCH_VECTOR TIMER2_COMPB_vect
 
@@ -90,7 +93,7 @@ static inline void ResetPreemptiveSwitchIrqFlag()
 __attribute__((always_inline))
 static inline void ResetSwitcherTickIrqFlag()
 {
-    TIFR2 = (1 << OCF2A);  
+  TIFR2 = (1 << OCF2A);  
 }
 
 __attribute__((always_inline))
@@ -99,12 +102,23 @@ static inline void ResetForcedSwitchIrqFlag()
   PCIFR = (1 << PCIF3);
 }
 
-// Resets preemptive switching timer interval (set compare register to current counter value) and
+// Resets preemptive switching timer interval (set compare register to current counter value - 1) and
 // resets preemptive switching interrupt flag if set
 __attribute__((always_inline))
 static inline void ResetPreemptiveSwitchTimer()
 {
-  OCR2B = TCNT2;
+  uint8_t temp = TCNT2;
+  
+  if (temp == 0)
+  {
+    temp = SWITCHER_TIMER_TOP;
+  }
+  else
+  {
+    temp--;
+  }
+  
+  OCR2B = temp;
   
   // reset interrupt flag if set
   if (IsPreemptiveSwitchPending())
