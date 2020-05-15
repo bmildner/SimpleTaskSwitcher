@@ -19,6 +19,8 @@ typedef struct  SyncObject_  // all members requires task switcher to be paused
   Task*       m_pCurrentOwner;      // current owner task
 } SyncObject;
 
+#define SWITCHER_SYNCOBJECT_STATIC_INIT() {.m_pWaitingList = NULL, .m_pAcquiredListNext = NULL, .m_pCurrentOwner = NULL}
+
 
 // expects: task switcher is currently paused
 __attribute__((always_inline))
@@ -202,7 +204,5 @@ static inline void UnqueueFromSyncObject(SyncObject* syncObject, Task* task)  //
     syncObject->m_pCurrentOwner->m_Priority = newPrio;
   }
 }
-
-#define SWITCHER_SYNCOBJECT_STATIC_INIT() {.m_pWaitingList = NULL, .m_pAcquiredListNext = NULL, .m_pCurrentOwner = NULL}
 
 #endif /* SYNCOBJECT_H_ */

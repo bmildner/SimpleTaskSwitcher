@@ -25,7 +25,7 @@ static void InitHardware()
   // OCR2A has a fixed value to generate a monotone switcher tick IRQ
   // OCR2B has a variable value (0 <= OCR2B <= OCR2A), 
   //   is used for preemptive task switching, 
-  //   worst case CPU slice length is (1 / (20Mhz / 256)) * 38 = 486,4 us (12,8 us short of switcher tick)
+  //   worst case CPU slice length is (1 / (20Mhz / 256)) * 38 = 486,4 us (12,8 us short of switcher tick)  // TODO: is this still true when resetting OCR2B with TCNT2-1?
   // @20Mhz => 499,2 us between switcher ticks (OCR2A)
   TCCR2A = (1 << WGM21);  
   OCR2A = SWITCHER_TIMER_TOP;

@@ -79,10 +79,13 @@ typedef uint8_t Bool;
   asm volatile ("" ::: "memory")
 
 #ifdef DEBUG
-# define SWITCHER_ASSERT(condition)   \
-           if (!(condition))          \
-           {                          \
-             asm volatile ("break");  \
+# define SWITCHER_ASSERT(condition)     \
+           if (!(condition))            \
+           {                            \
+             while (TRUE)               \
+             {                          \
+               asm volatile ("break");  \
+             }                          \
            }
 #else
 # define SWITCHER_ASSERT(condition)

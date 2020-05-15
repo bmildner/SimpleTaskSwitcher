@@ -16,10 +16,11 @@
 #include "SwitcherConfig.h"
 
 
-#define SWITCHER_STACK_SIZE 32
+#define SWITCHER_STACK_SIZE 32  // TODO: correctly size stack!!
 
 typedef enum {Yielded = 0, PreemptiveSwitch, ForcedSwitch, SwitcherTick, TerminatingTask} SwitchingSource;
 
+// used as return value for SwitcherCore() function
 typedef struct
 {
   void* m_NewSP;         // new stack pointer after switch, may be same as current
@@ -33,7 +34,7 @@ Task* g_CurrentTask = NULL;  // requires task switcher to be paused
 static uint8_t g_Tasks = 0; // total number of tasks excl. IdleTask, requires task switcher to be paused
 uint8_t g_ActiveTasks = 0;  // number of currently active task excl. IdleTask, requires IRQ protection!
 
-static TickCount g_TickCount;
+static TickCount g_TickCount;  // total number (64bit) of switcher tick counts since initialization
 
 static uint8_t g_SwitcherStackData[SWITCHER_STACK_SIZE];
 
@@ -454,6 +455,7 @@ SwitcherResult SwitcherCore(SwitchingSource source, void* stackPointer)
     {
       SWITCHER_ASSERT(g_CurrentTask->m_SleepCount == TimeoutInfinite);
       SWITCHER_ASSERT(nextTask != g_CurrentTask);
+      SWITCHER_ASSERT(g_CurrentTask->m_pAcquiredList == NULL);
       
       // remove task from task list
       Task* taskListIter = g_CurrentTask->m_pTaskListNext;
@@ -789,16 +791,24 @@ SwitcherError AddTask(Task* task,
   {
     uint8_t                    m_Registers[SWITCHER_TASK_STATE_SIZE - SWITCHER_RETURN_ADDR_SIZE];
 
+    static_assert(sizeof(TaskStartupFunctionPointer) == 2, "sizeof(TaskStartupFunctionPointer) must be 2");
+    static_assert(sizeof(TaskStartupFunctionPointer) <= SWITCHER_RETURN_ADDR_SIZE, "sizeof(TaskStartupFunctionPointer) must be <= than SWITCHER_RETURN_ADDR_SIZE");
+    
 #if SWITCHER_RETURN_ADDR_SIZE > 2
-    uint8_t                    m_ReturnAddressPadding[SWITCHER_RETURN_ADDR_SIZE - 2];
+    uint8_t                    m_ReturnAddressPadding[SWITCHER_RETURN_ADDR_SIZE - sizeof(TaskStartupFunctionPointer)];
 #endif
     
     TaskStartupFunctionPointer m_ReturnAddress;  // return address from initial "task switch" to task startup function
   } InitialTaskState;
   
   SWITCHER_ASSERT(stackSize >= SWITCHER_TASK_STATE_MIN_STACK_SIZE);
-  static_assert(sizeof(InitialTaskState) == SWITCHER_TASK_STATE_MIN_STACK_SIZE, "sizeof(InitialTaskState) must be equal to SWITCHER_TASK_STATE_MIN_STACK_SIZE");
+  static_assert(sizeof(InitialTaskState) == SWITCHER_TASK_STATE_MIN_STACK_SIZE, "sizeof(InitialTaskState) must be equal to SWITCHER_TASK_STATE_MIN_STACK_SIZE");   
 
+  if (g_CurrentTask == NULL)
+  {
+    return SwitcherNotInitialized;
+  }
+  
   const Bool isIdleTask = (task == &g_IdleTask);
   
   if ((task == NULL) ||
@@ -808,11 +818,6 @@ SwitcherError AddTask(Task* task,
       (stackSize < sizeof(InitialTaskState)))  // TODO: check for better minimal stack size
   {
     return SwitcherInvalidParameter;
-  }
-  
-  if (g_CurrentTask == NULL)
-  {
-    return SwitcherNotInitialized;
   }
   
   if (g_Tasks == MaxNumberOfTasks)
@@ -839,10 +844,12 @@ SwitcherError AddTask(Task* task,
   task->m_pStackPointer = pInitialTaskState;  // we always store the SP pointing to the last saved byte!
   task->m_BasePriority = priority;
   task->m_Priority = priority;
+  
 #if 0  // for stack check only 
   task->m_StackBuffer = stackBuffer;
-  task->m_StackSize = stackSize;    
-#endif  
+  task->m_StackSize = stackSize;
+#endif
+
   task->m_pWaitingListNext = NULL;
   task->m_pTaskWaitingList = NULL;
   task->m_pAcquiredList = NULL;
@@ -863,7 +870,7 @@ SwitcherError AddTask(Task* task,
     SWITCHER_ENABLE_INTERRUPTS();
   }
 
-  // give away the CPU if the new task has higher priority then we have
+  // give away the CPU if the new task has higher priority than we have
   if (priority > g_CurrentTask->m_Priority)
   {
     Yield();
@@ -886,17 +893,22 @@ void TaskStartup(TaskFunction taskFunction, void* taskParameter)
 
 SwitcherError JoinTask(Task* task, Timeout timeout)
 {
-  PauseSwitching();
-  
-  if (IsKnownTask(task))
+  if (g_CurrentTask == NULL)
   {
-    if (task == g_CurrentTask)
-    {
-      ResumeSwitching();
+    return SwitcherNotInitialized;
+  }
+  
+  PauseSwitching();
+   
+  if (task == g_CurrentTask)
+  {
+    ResumeSwitching();
       
-      return SwitcherInvalidParameter;
-    }
+    return SwitcherInvalidParameter;
+  }
     
+  if (IsKnownTask(task))
+  {    
     // add us to the tasks waiting list
     g_CurrentTask->m_pWaitingListNext = task->m_pTaskWaitingList;
     task->m_pTaskWaitingList = g_CurrentTask;

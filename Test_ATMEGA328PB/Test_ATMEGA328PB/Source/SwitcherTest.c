@@ -727,14 +727,26 @@ static void EmptyTestTaskFunction(void* param)
 
 static void AddTaskTrumpolin()
 {  
-  AddTask(&g_TestTask, testStack, sizeof(testStack), &EmptyTestTaskFunction, NULL, PriorityNormal);
+  if (AddTask(&g_TestTask, testStack, sizeof(testStack), &EmptyTestTaskFunction, NULL, PriorityNormal) != SwitcherNoError)
+  {
+    while (TRUE)
+    {
+      asm volatile ("break");
+    }
+  }
   
-  JoinTask(&g_TestTask, TimeoutInfinite);
+  if (JoinTask(&g_TestTask, TimeoutInfinite) != SwitcherNoError)
+  {
+    while (TRUE)
+    {
+      asm volatile ("break");
+    }
+  }  
 }
 
 static void AddTaskTest()
 {
-  if (AddTask(&g_TestTask, testStack, sizeof(testStack), (TaskFunction) 0xabcd, (void*) 0xdead, PriorityNormal) != SwitcherNoError)
+  if (AddTask(&g_TestTask, testStack, sizeof(testStack), &EmptyTestTaskFunction, NULL, PriorityNormal) != SwitcherNoError)
   {
     while (TRUE)
     {
@@ -742,7 +754,13 @@ static void AddTaskTest()
     }
   }
   
-  JoinTask(&g_TestTask, TimeoutInfinite);
+  if (JoinTask(&g_TestTask, TimeoutInfinite) != SwitcherNoError)
+  {
+    while (TRUE)
+    {
+      asm volatile ("break");
+    }    
+  }
   
   PreservesSREG_I(&AddTaskTrumpolin);
   
