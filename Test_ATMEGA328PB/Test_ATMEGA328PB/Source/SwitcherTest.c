@@ -70,13 +70,18 @@ void PreservesFullState(TrampolinFunction function)
                 "push r30              \n\t"  // save function ptr on stack
                 "push r31              \n\t"
 
+                /* check zero reg */
+                "mov r17,r1            \n\t"
+                "cpi r17,0x00          \n\t"
+                ASM_BREAK_LOOP_IF_NOT_EQUAL
+
                 /* setup SREG */
                 "ldi r16,%[sreg_value] \n\t"
                 "out __SREG__,r16      \n\t"
 
                 /* setup registers */
                 "ldi r16,0xab          \n\t"
-                "ldi r17,0xcd          \n\t"
+                "ldi r17,0x00          \n\t"  // make sure zero reg (R1) remains zero!
                 "ldi r18,2             \n\t"
                 "ldi r19,3             \n\t"
                 "ldi r20,4             \n\t"
@@ -164,7 +169,7 @@ void PreservesFullState(TrampolinFunction function)
 
                 "cpi r16,0xab          \n\t"
                 ASM_BREAK_LOOP_IF_NOT_EQUAL
-                "cpi r17,0xcd          \n\t"
+                "cpi r17,0x00          \n\t"
                 ASM_BREAK_LOOP_IF_NOT_EQUAL
                 "cpi r18,2             \n\t"
                 ASM_BREAK_LOOP_IF_NOT_EQUAL
@@ -252,7 +257,6 @@ void PreservesFullState(TrampolinFunction function)
 void AdheresToABI(TrampolinFunction function)
 {
   asm volatile (// save registers according to ABI
-                "push r1               \n\t"
                 "push r2               \n\t"
                 "push r3               \n\t"
                 "push r4               \n\t"
@@ -272,12 +276,13 @@ void AdheresToABI(TrampolinFunction function)
                 "push r28              \n\t"
                 "push r29              \n\t"
                 
-                // fill call saved registers with test data
-                "ldi r28,19            \n\t"
-                "ldi r29,17            \n\t"
+                "mov r28,r1            \n\t"  // check zero reg
+                "cpi r28,00            \n\t"
+                ASM_BREAK_LOOP_IF_NOT_EQUAL
                 
-                "mov r1, r28           \n\t"
-                "subi r28,1            \n\t"
+                // fill call saved registers with test data
+                "ldi r28,18            \n\t"
+                "ldi r29,17            \n\t"
                 
                 "movw r2, r28          \n\t"
                 "subi r28,2            \n\t"
@@ -359,8 +364,8 @@ void AdheresToABI(TrampolinFunction function)
                 "cpi r16,18            \n\t"
                 ASM_BREAK_LOOP_IF_NOT_EQUAL
 
-                "mov r17,r1            \n\t"
-                "cpi r17,19            \n\t"
+                "mov r17,r1            \n\t"  // check zero reg
+                "cpi r17,00            \n\t"
                 ASM_BREAK_LOOP_IF_NOT_EQUAL
                 
                 // restore registers according to ABI
@@ -382,7 +387,6 @@ void AdheresToABI(TrampolinFunction function)
                 "pop r4                \n\t"
                 "pop r3                \n\t"
                 "pop r2                \n\t"
-                "pop r1                \n\t"
                   
                 "ret                   \n\t"
                 );
@@ -722,7 +726,13 @@ static Task g_TestTask;
 
 static void EmptyTestTaskFunction(void* param)
 {
-  (void)param;
+  if (param != NULL)
+  {
+    while (TRUE)
+    {
+      asm volatile ("break");
+    }    
+  }
 }
 
 static void AddTaskTrumpolin()

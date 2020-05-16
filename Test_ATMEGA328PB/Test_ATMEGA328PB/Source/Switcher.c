@@ -92,6 +92,7 @@ ISR(SWITCHER_PREEMPTIVE_SWITCH_VECTOR, ISR_NAKED)
   SwitcherEntryImpl(PreemptiveSwitch);
 }
 
+// TODO: maybe change to normal IRQ + trigger a forced switch if needed!?!?!
 ISR(SWITCHER_TICK_VECTOR, ISR_NAKED)
 {
   SwitcherEntryImpl(SwitcherTick);
@@ -472,6 +473,10 @@ SwitcherResult SwitcherCore(SwitchingSource source, void* stackPointer)
       SWITCHER_ASSERT(g_Tasks > 0);
       
       g_Tasks--;
+      
+      // we need to exit here, g_CurrentTask is still pointing to the terminated task! -> endless loop in SwitcherTickCore()
+      done = TRUE;
+      continue;
     }
     
     // check for pending switcher IRQs, avoid exit and immediate re-entry of switcher implementation
