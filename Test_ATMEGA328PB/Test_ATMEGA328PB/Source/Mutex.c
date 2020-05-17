@@ -25,7 +25,6 @@ SwitcherError LockMutex(Mutex* mutex, Timeout timeout)
   if (mutex->m_SyncObject.m_pCurrentOwner == NULL)
   {
     SWITCHER_ASSERT(mutex->m_LockCount == 0);
-    SWITCHER_ASSERT(mutex->m_SyncObject.m_pAcquiredListNext == NULL);
     
     AcquireSyncObject(&mutex->m_SyncObject, g_CurrentTask);
     

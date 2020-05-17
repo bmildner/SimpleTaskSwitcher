@@ -11,15 +11,39 @@
 #include "Switcher.h"
 
 
-typedef struct  SyncObject_  // all members requires task switcher to be paused
+typedef struct  SyncObject_  // all members require the task switcher to be paused
 {
-  Task*       m_pWaitingList;       // waiting list head, waiting tasks are sorted by priority (highest first) and FIFO within a given priority
-                                    // -> first task in waiting list is of the highest priority currently waiting and is the next to aquire
-  SyncObject* m_pAcquiredListNext;  // acquired list next pointer, next pointer for list of all currently acquired sync objects by current owner
-  Task*       m_pCurrentOwner;      // current owner task
+  Task* m_pWaitingList;  // waiting list head, waiting tasks are sorted by priority (highest first) and FIFO within a given priority
+                         // -> first task in waiting list is of the highest priority currently waiting and is the next to aquire
+
+  union
+  {
+    uint8_t m_Flags;  // storage of bitfield flags below
+    
+    struct    
+    {
+      Bool m_HasOwnershipSemantic : 1;  // set if sync object is used with ownership semantic, notification/event semantic otherwise
+      Bool m_HasPendingOwnership  : 1;  // set to indicate that the current set owner has not yet taken full ownership (has not had CPU time to do so)
+    };
+  };       
+  
+  union
+  {
+    struct  // members for ownership semantic
+    {
+      SyncObject* m_pAcquiredListNext;  // acquired list next pointer, next pointer for list of all currently acquired sync objects by current owner
+      Task*       m_pCurrentOwner;      // current owner task
+    };
+    
+    struct  // members for notification/event semantic 
+    {
+      Task* m_pNotificationList;  // list of all notified tasks, uses m_pWaitingListNext member in task struct
+    };
+  };    
 } SyncObject;
 
-#define SWITCHER_SYNCOBJECT_STATIC_INIT() {.m_pWaitingList = NULL, .m_pAcquiredListNext = NULL, .m_pCurrentOwner = NULL}
+#define SWITCHER_SYNCOBJECT_WITH_OWNERSHIP_STATIC_INIT()    {.m_pWaitingList = NULL, .m_Flags = 0, .m_HasOwnershipSemantic = TRUE,  .m_pAcquiredListNext = NULL, .m_pCurrentOwner = NULL}
+#define SWITCHER_SYNCOBJECT_WITH_NOTIFICATION_STATIC_INIT() {.m_pWaitingList = NULL, .m_Flags = 0, .m_HasOwnershipSemantic = FALSE, .m_pAcquiredListNext = NULL, .m_pCurrentOwner = NULL}
 
 
 // expects: task switcher is currently paused
@@ -27,15 +51,17 @@ __attribute__((always_inline))
 static inline void AcquireSyncObject(SyncObject* syncObject, Task* task)
 {
   SWITCHER_ASSERT((syncObject != NULL) && (task != NULL));
-  SWITCHER_ASSERT((syncObject->m_pCurrentOwner == NULL) && (syncObject->m_pAcquiredListNext == NULL));
+  SWITCHER_ASSERT(syncObject->m_HasOwnershipSemantic);  
+  SWITCHER_ASSERT((syncObject->m_HasPendingOwnership && (syncObject->m_pCurrentOwner == task)) || 
+                  (syncObject->m_pCurrentOwner == NULL));
+  SWITCHER_ASSERT(syncObject->m_pAcquiredListNext == NULL);
   
   syncObject->m_pCurrentOwner = task;
   syncObject->m_pAcquiredListNext = task->m_pAcquiredList;
   task->m_pAcquiredList = syncObject;
 }
 
-
-// TODO: if task has acquired a syncobject and is currently in the waiting list for another one while his prio is bumped his waiting list entry need to be re-sorted!!
+// TODO: if task has acquired a syncobject and is currently in the waiting list for another one while his prio is bumped his waiting list entry needs to be re-sorted!!
 //       same if the high prio task times out the waiting list entry also needs to be re-sorted !!
 
 // expects: task switcher is currently paused
@@ -43,6 +69,7 @@ __attribute__((always_inline))
 static inline void ReleaseSyncObject(SyncObject* syncObject, Task* task)  // TODO: really inline or not ...
 {
   SWITCHER_ASSERT((syncObject != NULL) && (task != NULL));
+  SWITCHER_ASSERT(syncObject->m_HasOwnershipSemantic && !syncObject->m_HasPendingOwnership);
   SWITCHER_ASSERT(syncObject->m_pCurrentOwner == task);
   SWITCHER_ASSERT(task->m_pAcquiredList != NULL);
   
@@ -64,8 +91,7 @@ static inline void ReleaseSyncObject(SyncObject* syncObject, Task* task)  // TOD
       SWITCHER_ASSERT(syncObjectIter->m_pAcquiredListNext != NULL);
     }
     
-    SWITCHER_ASSERT(syncObjectIter != NULL);
-    SWITCHER_ASSERT(syncObjectIter->m_pAcquiredListNext == syncObject);
+    SWITCHER_ASSERT((syncObjectIter != NULL) && (syncObjectIter->m_pAcquiredListNext == syncObject));
     
     syncObjectIter->m_pAcquiredListNext = syncObject->m_pAcquiredListNext;
   }
@@ -108,12 +134,14 @@ static inline void ReleaseSyncObject(SyncObject* syncObject, Task* task)  // TOD
   }
 }
 
+
 // expects: task switcher is currently paused
 __attribute__((always_inline))
 static inline void QueueForSyncObject(SyncObject* syncObject, Task* task)  // TODO: really inline or not ...
 {
   SWITCHER_ASSERT((syncObject != NULL) && (task != NULL));
-  SWITCHER_ASSERT(syncObject->m_pCurrentOwner != NULL);
+  SWITCHER_ASSERT(((syncObject->m_HasOwnershipSemantic) && (syncObject->m_pCurrentOwner != NULL) && (syncObject->m_pCurrentOwner != task)) ||
+                   !syncObject->m_HasOwnershipSemantic);
   
   if (syncObject->m_pWaitingList == NULL)
   {
@@ -150,8 +178,9 @@ __attribute__((always_inline))
 static inline void UnqueueFromSyncObject(SyncObject* syncObject, Task* task)  // TODO: really inline or not ...
 {
   SWITCHER_ASSERT((syncObject != NULL) && (task != NULL));
-  SWITCHER_ASSERT(syncObject->m_pCurrentOwner != NULL);
-  SWITCHER_ASSERT(syncObject->m_pCurrentOwner != task);
+  SWITCHER_ASSERT((syncObject->m_HasOwnershipSemantic && (syncObject->m_pCurrentOwner != NULL) && (syncObject->m_pCurrentOwner != task)) ||
+                  !syncObject->m_HasOwnershipSemantic);
+
   SWITCHER_ASSERT(syncObject->m_pWaitingList != NULL);
   
   // remove task from waiting list
