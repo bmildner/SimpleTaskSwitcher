@@ -505,7 +505,7 @@ SwitcherResult SwitcherCore(SwitchingSource source, void* stackPointer)
   
   if (nextTask != g_CurrentTask)
   {
-    g_CurrentTask->m_pStackPointer = stackPointer - 15;
+    g_CurrentTask->m_pStackPointer = ((uint8_t*)stackPointer) - 15;
         
     g_CurrentTask = nextTask;
     
@@ -830,7 +830,7 @@ SwitcherError AddTask(Task* task,
     return SwitcherTooManyTasks;
   }
   
-  InitialTaskState* pInitialTaskState = stackBuffer + ((stackSize - 1) - (sizeof(InitialTaskState) - 1));
+  InitialTaskState* pInitialTaskState = ((InitialTaskState*)((uint8_t*)stackBuffer) + ((stackSize - 1) - (sizeof(InitialTaskState) - 1)));
     
   memset(pInitialTaskState, 0x00, sizeof(InitialTaskState));
   

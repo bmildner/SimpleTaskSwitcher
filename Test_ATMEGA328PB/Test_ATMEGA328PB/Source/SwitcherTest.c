@@ -8,7 +8,7 @@
 #include "SwitcherTest.h"
 
 #include "SwitcherConfig.h"
-
+#include "Mutex.h"
 
 #define __STRINGIFY(x) #x
 #define TO_STRING(x) __STRINGIFY(x)
@@ -40,7 +40,9 @@ static Bool AreSwitcherIRQsEnabled();
 // SREG, only SREG_I is ignored to allow testing of ISRs.
 void PreservesFullState(TrampolinFunction function)
 {
-  asm volatile (/* save registers according to ABI */
+  (void) function;
+  
+  asm volatile (// save registers according to ABI
                 "push r1               \n\t"
                 "push r2               \n\t"
                 "push r3               \n\t"
@@ -61,7 +63,7 @@ void PreservesFullState(TrampolinFunction function)
                 "push r28              \n\t"
                 "push r29              \n\t"
 
-                /* save SREG */
+                // save SREG
                 "in r16, __SREG__      \n\t"
                 "push r16              \n\t"
 
@@ -70,16 +72,16 @@ void PreservesFullState(TrampolinFunction function)
                 "push r30              \n\t"  // save function ptr on stack
                 "push r31              \n\t"
 
-                /* check zero reg */
+                // check zero reg
                 "mov r17,r1            \n\t"
                 "cpi r17,0x00          \n\t"
                 ASM_BREAK_LOOP_IF_NOT_EQUAL
 
-                /* setup SREG */
+                // setup SREG
                 "ldi r16,%[sreg_value] \n\t"
                 "out __SREG__,r16      \n\t"
 
-                /* setup registers */
+                // setup registers
                 "ldi r16,0xab          \n\t"
                 "ldi r17,0x00          \n\t"  // make sure zero reg (R1) remains zero!
                 "ldi r18,2             \n\t"
@@ -127,7 +129,7 @@ void PreservesFullState(TrampolinFunction function)
 
                 "cli                   \n\t"  // disable IRQs
 
-                /* save r16 and SREG on stack for later check */
+                // save r16 and SREG on stack for later check
                 "push r16              \n\t"
                 "in r16,__SREG__       \n\t"
                 "push r16              \n\t"
@@ -203,15 +205,15 @@ void PreservesFullState(TrampolinFunction function)
                 "cpi r17,15            \n\t"
                 ASM_BREAK_LOOP_IF_NOT_EQUAL
 
-                /* restore new SREG in r17 and r16 in r16 */
+                // restore new SREG in r17 and r16 in r16
                 "pop r17               \n\t"
                 "pop r16               \n\t"
                 
-                /* check r16 */
+                // check r16
                 "cpi r16,16            \n\t"
                 ASM_BREAK_LOOP_IF_NOT_EQUAL
 
-                /* check SREG */
+                // check SREG
                 "cpi r17,%[sreg_value] \n\t"
                 ASM_BREAK_LOOP_IF_NOT_EQUAL
 
@@ -225,11 +227,11 @@ void PreservesFullState(TrampolinFunction function)
                 "cp r31,r17            \n\t"
                 ASM_BREAK_LOOP_IF_NOT_EQUAL
 
-                /* restore SREG */
+                // restore SREG
                 "pop r16               \n\t"
                 "out __SREG__, r16     \n\t"
 
-                /* restore registers according to ABI */
+                // restore registers according to ABI
                 "pop r29               \n\t"
                 "pop r28               \n\t"
                 "pop r17               \n\t"
@@ -256,6 +258,8 @@ void PreservesFullState(TrampolinFunction function)
 
 void AdheresToABI(TrampolinFunction function)
 {
+  (void) function;
+  
   asm volatile (// save registers according to ABI
                 "push r2               \n\t"
                 "push r3               \n\t"
@@ -777,6 +781,78 @@ static void AddTaskTest()
   AdheresToABI(&AddTaskTrumpolin);
 }
 
+// ********************** Mutex **********************
+
+Mutex g_Mutex = SWITCHER_MUTEX_STATIC_INIT();
+
+static void MutexTest()
+{
+  if (LockMutex(&g_Mutex, TimeoutNone) != SwitcherNoError)
+  {
+    while (TRUE)
+    {
+      asm volatile ("break");
+    }
+  }
+  
+  if (UnlockMutex(&g_Mutex) != SwitcherNoError)
+  {
+    while (TRUE)
+    {
+      asm volatile ("break");
+    }    
+  }
+  
+  if (UnlockMutex(&g_Mutex) != SwitcherResourceNotOwned)
+  {
+    while (TRUE)
+    {
+      asm volatile ("break");
+    }
+  }
+
+
+  if (LockMutex(&g_Mutex, TimeoutNone) != SwitcherNoError)
+  {
+    while (TRUE)
+    {
+      asm volatile ("break");
+    }
+  }
+
+  if (LockMutex(&g_Mutex, TimeoutNone) != SwitcherNoError)
+  {
+    while (TRUE)
+    {
+      asm volatile ("break");
+    }
+  }
+
+  if (UnlockMutex(&g_Mutex) != SwitcherNoError)
+  {
+    while (TRUE)
+    {
+      asm volatile ("break");
+    }
+  }
+
+  if (UnlockMutex(&g_Mutex) != SwitcherNoError)
+  {
+    while (TRUE)
+    {
+      asm volatile ("break");
+    }
+  }
+  
+  if (UnlockMutex(&g_Mutex) != SwitcherResourceNotOwned)
+  {
+    while (TRUE)
+    {
+      asm volatile ("break");
+    }
+  }  
+}
+
 // ********************** SwitcherTestSuite **********************
 
 void SwitcherTestSuite()
@@ -793,4 +869,6 @@ void SwitcherTestSuite()
   ResumeSwitchingTest();
       
   AddTaskTest();
+  
+  MutexTest();
 }
