@@ -52,36 +52,36 @@
                    [pcmsk3] "i"(_SFR_MEM_ADDR(PCMSK3)), [pcmsk3_mask] "i"(1 << PCINT25))
 
 __attribute__((always_inline))
-static inline Bool IsPreemptiveSwitchPending()
+static inline bool IsPreemptiveSwitchPending()
 {
   if (bit_is_set(TIFR2, OCF2B))
   {
-    return TRUE;
+    return true;
   }
   
-  return FALSE;
+  return false;
 }
 
 __attribute__((always_inline))
-static inline Bool IsForcedSwitchPending()
+static inline bool IsForcedSwitchPending()
 {
   if (bit_is_set(PCIFR, PCIF3))
   {
-    return TRUE;
+    return true;
   }
   
-  return FALSE;  
+  return false;  
 }
 
 __attribute__((always_inline))
-static inline Bool IsSwitcherTickPending()
+static inline bool IsSwitcherTickPending()
 {
   if (bit_is_set(TIFR2, OCF2A))
   {
-    return TRUE;
+    return true;
   }
   
-  return FALSE;  
+  return false;  
 }
 
 __attribute__((always_inline))

@@ -391,7 +391,7 @@ SwitcherResult SwitcherCore(SwitchingSource source, void* stackPointer)
   
   SwitcherResult result = {.m_PreviousTask = g_CurrentTask};
   Task* nextTask = NULL;
-  Bool done = FALSE;
+  bool done = false;
 
   while (!done)
   {    
@@ -476,7 +476,7 @@ SwitcherResult SwitcherCore(SwitchingSource source, void* stackPointer)
       g_Tasks--;
       
       // we need to exit here, g_CurrentTask is still pointing to the terminated task! -> endless loop in SwitcherTickCore()
-      done = TRUE;
+      done = true;
       continue;
     }
     
@@ -498,7 +498,7 @@ SwitcherResult SwitcherCore(SwitchingSource source, void* stackPointer)
     }
     else
     {
-      done = TRUE; 
+      done = true; 
     }
   }  // while
 
@@ -728,7 +728,7 @@ static void IdleTask(void* param)
   SWITCHER_ASSERT(g_CurrentTask->m_Priority == PriorityIdle);  
   SWITCHER_ASSERT(g_CurrentTask->m_BasePriority == PriorityIdle);
   
-  while (TRUE)
+  while (true)
   {
     set_sleep_mode(SLEEP_MODE_IDLE);
     
@@ -815,7 +815,7 @@ SwitcherError AddTask(Task* task,
     return SwitcherNotInitialized;
   }
   
-  const Bool isIdleTask = (task == &g_IdleTask);
+  const bool isIdleTask = (task == &g_IdleTask);
   
   if ((task == NULL) ||
       (stackBuffer == NULL) ||
@@ -905,7 +905,7 @@ void TaskStartup(TaskFunction taskFunction, void* taskParameter)
   TerminateTask();
     
   // WE SHOULD NEVER EVER REACH THIS POINT!
-  SWITCHER_ASSERT(TRUE == FALSE);
+  SWITCHER_ASSERT(true == false);
 }
 
 SwitcherError JoinTask(Task* task, Timeout timeout)
@@ -960,9 +960,9 @@ TickCount GetSwitcherTickCount()
   return count;
 }
 
-Bool IsKnownTask(const Task* task)
+bool IsKnownTask(const Task* task)
 {
-  Bool found = FALSE;
+  bool found = false;
   
   PauseSwitching();
   
@@ -972,7 +972,7 @@ Bool IsKnownTask(const Task* task)
   {
     if (taskListIter == task)
     {
-      found = TRUE;
+      found = true;
       break;
     }
     

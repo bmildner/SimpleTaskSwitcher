@@ -9,23 +9,12 @@
 #define SWITCHER_H_
 
 #include <inttypes.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <assert.h>
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
-
-#ifdef TRUE
-# undef TRUE
-#endif
-#define TRUE 1
-
-#ifdef FALSE
-# undef FALSE
-#endif
-#define FALSE 0
-
-typedef uint8_t Bool;  // TODO: change to <stdbool.h>!!
 
 #ifdef RAMPX
 # define SWITCHER_RAMPX_SIZE 1
@@ -82,7 +71,7 @@ typedef uint8_t Bool;  // TODO: change to <stdbool.h>!!
 # define SWITCHER_ASSERT(condition)     \
            if (!(condition))            \
            {                            \
-             while (TRUE)               \
+             while (true)               \
              {                          \
                asm volatile ("break");  \
              }                          \
@@ -212,6 +201,6 @@ SwitcherError JoinTask(Task* task, Timeout timeout);
 
 TickCount GetSwitcherTickCount();
 
-Bool IsKnownTask(const Task* task);
+bool IsKnownTask(const Task* task);
 
 #endif /* SWITCHER_H_ */

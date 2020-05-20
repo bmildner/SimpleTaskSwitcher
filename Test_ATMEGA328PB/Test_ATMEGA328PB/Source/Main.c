@@ -49,7 +49,7 @@ int main(void)
     
     Initialize(&g_MainTask);
     
-    while (TRUE) 
+    while (true) 
     {      
       SwitcherTestSuite();
       Sleep(1);

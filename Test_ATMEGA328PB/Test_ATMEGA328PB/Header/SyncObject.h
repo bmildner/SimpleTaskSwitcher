@@ -38,7 +38,7 @@ typedef struct  SyncObject_  // all members require the task switcher to be paus
     
     struct    
     {
-      Bool m_HasOwnershipSemantic : 1;  // set if sync object is used with ownership semantic, notification/event semantic otherwise
+      bool m_HasOwnershipSemantic : 1;  // set if sync object is used with ownership semantic, notification/event semantic otherwise
     };
   };       
   
@@ -59,13 +59,13 @@ typedef struct  SyncObject_  // all members require the task switcher to be paus
   };    
 } SyncObject;
 
-#define SWITCHER_SYNCOBJECT_WITH_OWNERSHIP_STATIC_INIT()    {.m_pWaitingList = NULL, .m_Flags = 0, .m_HasOwnershipSemantic = TRUE,  .m_pAcquiredListNext = NULL, .m_pCurrentOwner = NULL, .m_pNextOwner = NULL}
-#define SWITCHER_SYNCOBJECT_WITH_NOTIFICATION_STATIC_INIT() {.m_pWaitingList = NULL, .m_Flags = 0, .m_HasOwnershipSemantic = FALSE, .m_pNotificationList = NULL}
+#define SWITCHER_SYNCOBJECT_WITH_OWNERSHIP_STATIC_INIT()    {.m_pWaitingList = NULL, .m_Flags = 0, .m_HasOwnershipSemantic = true,  .m_pAcquiredListNext = NULL, .m_pCurrentOwner = NULL, .m_pNextOwner = NULL}
+#define SWITCHER_SYNCOBJECT_WITH_NOTIFICATION_STATIC_INIT() {.m_pWaitingList = NULL, .m_Flags = 0, .m_HasOwnershipSemantic = false, .m_pNotificationList = NULL}
 
 // expects: task switcher is currently paused
 //          sync object has ownership semantic
 __attribute__((always_inline))
-static inline Bool IsFreeSyncObject(SyncObject* syncObject)
+static inline bool IsFreeSyncObject(SyncObject* syncObject)
 {
   SWITCHER_ASSERT(syncObject != NULL);
   SWITCHER_ASSERT(syncObject->m_HasOwnershipSemantic);
@@ -75,16 +75,16 @@ static inline Bool IsFreeSyncObject(SyncObject* syncObject)
     SWITCHER_ASSERT(syncObject->m_pNextOwner == NULL);
     SWITCHER_ASSERT(syncObject->m_pAcquiredListNext == NULL);
     
-    return TRUE;
+    return true;
   }
   
-  return FALSE;
+  return false;
 }
 
 // expects: task switcher is currently paused
 //          sync object has ownership semantic
 __attribute__((always_inline))
-static inline Bool IsOwnedSyncObject(SyncObject* syncObject)
+static inline bool IsOwnedSyncObject(SyncObject* syncObject)
 {
   SWITCHER_ASSERT(syncObject != NULL);
   SWITCHER_ASSERT(syncObject->m_HasOwnershipSemantic);
@@ -93,16 +93,16 @@ static inline Bool IsOwnedSyncObject(SyncObject* syncObject)
   {
     SWITCHER_ASSERT(syncObject->m_pNextOwner == NULL);
     
-    return TRUE;
+    return true;
   }
   
-  return FALSE;
+  return false;
 }
 
 // expects: task switcher is currently paused
 //          sync object has ownership semantic
 __attribute__((always_inline))
-static inline Bool IsCurrentSyncObjectOwner(SyncObject* syncObject, const Task* task)
+static inline bool IsCurrentSyncObjectOwner(SyncObject* syncObject, const Task* task)
 {
   SWITCHER_ASSERT((syncObject != NULL) && (task != NULL));
   SWITCHER_ASSERT(syncObject->m_HasOwnershipSemantic);
@@ -112,16 +112,16 @@ static inline Bool IsCurrentSyncObjectOwner(SyncObject* syncObject, const Task* 
     SWITCHER_ASSERT(syncObject->m_pNextOwner == NULL);
     SWITCHER_ASSERT(task->m_pAcquiredList != NULL);
     
-    return TRUE;
+    return true;
   }
   
-  return FALSE;
+  return false;
 }
 
 // expects: task switcher is currently paused
 //          sync object has ownership semantic
 __attribute__((always_inline))
-static inline Bool IsNextSyncObjectOwner(SyncObject* syncObject, const Task* task)
+static inline bool IsNextSyncObjectOwner(SyncObject* syncObject, const Task* task)
 {
   SWITCHER_ASSERT((syncObject != NULL) && (task != NULL));
   SWITCHER_ASSERT(syncObject->m_HasOwnershipSemantic);
@@ -132,10 +132,10 @@ static inline Bool IsNextSyncObjectOwner(SyncObject* syncObject, const Task* tas
     SWITCHER_ASSERT(syncObject->m_pWaitingList != NULL);
     SWITCHER_ASSERT(syncObject->m_pAcquiredListNext == NULL);
     
-    return TRUE;
+    return true;
   }
   
-  return FALSE;
+  return false;
 }
 
 // expects: task switcher is currently paused

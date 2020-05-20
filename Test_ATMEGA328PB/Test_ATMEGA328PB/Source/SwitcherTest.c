@@ -29,7 +29,7 @@ static void PreservesSREG_I(TrampolinFunction function);
 
 static void EnablesSREG_I(TrampolinFunction function);
 
-static Bool AreSwitcherIRQsEnabled();
+static bool AreSwitcherIRQsEnabled();
 
 #define ASM_BREAK_LOOP_IF_NOT_EQUAL           \
                 "breq .+4              \n\t"  \
@@ -406,7 +406,7 @@ void PreservesSREG_I(TrampolinFunction function)
 
   if (bit_is_clear(SREG, SREG_I))
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
@@ -418,7 +418,7 @@ void PreservesSREG_I(TrampolinFunction function)
   
   if (bit_is_set(SREG, SREG_I))
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
@@ -437,7 +437,7 @@ void EnablesSREG_I(TrampolinFunction function)
 
   if (bit_is_clear(SREG, SREG_I))
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
@@ -449,7 +449,7 @@ void EnablesSREG_I(TrampolinFunction function)
   
   if (bit_is_clear(SREG, SREG_I))
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
@@ -458,15 +458,15 @@ void EnablesSREG_I(TrampolinFunction function)
   SREG = sreg;
 }
 
-Bool AreSwitcherIRQsEnabled()
+bool AreSwitcherIRQsEnabled()
 {
   if (((TIMSK2 & ((1 << OCIE2A) | (1 << OCIE2B))) != ((1 << OCIE2A) | (1 << OCIE2B))) ||
       ((PCMSK3 & (1 << PCINT25)) != (1 << PCINT25)))
   {
-    return FALSE;
+    return false;
   } 
   
-  return TRUE;
+  return true;
 }  
 
 // ********************** Tests for Tests **********************
@@ -573,7 +573,7 @@ static void PauseSwitchingTest_OK()
   // we expect the switcher IRQs to be enabled when called, otherwise test will not work
   if (!AreSwitcherIRQsEnabled())
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
@@ -583,7 +583,7 @@ static void PauseSwitchingTest_OK()
   
   if (AreSwitcherIRQsEnabled())
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
@@ -593,7 +593,7 @@ static void PauseSwitchingTest_OK()
 
   if (AreSwitcherIRQsEnabled())
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
@@ -603,7 +603,7 @@ static void PauseSwitchingTest_OK()
 
   if (AreSwitcherIRQsEnabled())
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
@@ -613,7 +613,7 @@ static void PauseSwitchingTest_OK()
   
   if (!AreSwitcherIRQsEnabled())
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
@@ -644,7 +644,7 @@ static void ResumeSwitchingTest_OK()
   // we expect switcher IRQs to be enabled initially, otherwise test will fail
   if (!AreSwitcherIRQsEnabled())
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
@@ -658,7 +658,7 @@ static void ResumeSwitchingTest_OK()
 
   if (AreSwitcherIRQsEnabled())
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
@@ -668,7 +668,7 @@ static void ResumeSwitchingTest_OK()
 
   if (!AreSwitcherIRQsEnabled())
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
@@ -678,7 +678,7 @@ static void ResumeSwitchingTest_OK()
   
   if (AreSwitcherIRQsEnabled())
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
@@ -688,7 +688,7 @@ static void ResumeSwitchingTest_OK()
 
   if (AreSwitcherIRQsEnabled())
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
@@ -698,7 +698,7 @@ static void ResumeSwitchingTest_OK()
   
   if (AreSwitcherIRQsEnabled())
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
@@ -708,7 +708,7 @@ static void ResumeSwitchingTest_OK()
 
   if (!AreSwitcherIRQsEnabled())
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
@@ -732,7 +732,7 @@ static void EmptyTestTaskFunction(void* param)
 {
   if (param != NULL)
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }    
@@ -743,7 +743,7 @@ static void AddTaskTrumpolin()
 {  
   if (AddTask(&g_TestTask, testStack, sizeof(testStack), &EmptyTestTaskFunction, NULL, PriorityNormal) != SwitcherNoError)
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
@@ -751,7 +751,7 @@ static void AddTaskTrumpolin()
   
   if (JoinTask(&g_TestTask, TimeoutInfinite) != SwitcherNoError)
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
@@ -762,7 +762,7 @@ static void AddTaskTest()
 {
   if (AddTask(&g_TestTask, testStack, sizeof(testStack), &EmptyTestTaskFunction, NULL, PriorityNormal) != SwitcherNoError)
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break"); 
     }
@@ -770,7 +770,7 @@ static void AddTaskTest()
   
   if (JoinTask(&g_TestTask, TimeoutInfinite) != SwitcherNoError)
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }    
@@ -789,7 +789,7 @@ static void MutexTest()
 {
   if (LockMutex(&g_Mutex, TimeoutNone) != SwitcherNoError)
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
@@ -797,7 +797,7 @@ static void MutexTest()
   
   if (UnlockMutex(&g_Mutex) != SwitcherNoError)
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }    
@@ -805,7 +805,7 @@ static void MutexTest()
   
   if (UnlockMutex(&g_Mutex) != SwitcherResourceNotOwned)
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
@@ -814,7 +814,7 @@ static void MutexTest()
 
   if (LockMutex(&g_Mutex, TimeoutNone) != SwitcherNoError)
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
@@ -822,7 +822,7 @@ static void MutexTest()
 
   if (LockMutex(&g_Mutex, TimeoutNone) != SwitcherNoError)
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
@@ -830,7 +830,7 @@ static void MutexTest()
 
   if (UnlockMutex(&g_Mutex) != SwitcherNoError)
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
@@ -838,7 +838,7 @@ static void MutexTest()
 
   if (UnlockMutex(&g_Mutex) != SwitcherNoError)
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
@@ -846,7 +846,7 @@ static void MutexTest()
   
   if (UnlockMutex(&g_Mutex) != SwitcherResourceNotOwned)
   {
-    while (TRUE)
+    while (true)
     {
       asm volatile ("break");
     }
