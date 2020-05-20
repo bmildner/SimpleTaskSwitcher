@@ -11,7 +11,7 @@
 #include "Switcher.h"
 
 
-// SyncObject is the command base for all synchronization objects (like (recursive) mutex, semaphor, event, ...).
+// SyncObject is the common base for all synchronization objects (like (recursive) mutex, semaphor, event, ...).
 // A sync object has either ownership or notification/event semantic, depending on the needs of the synchronization object using it.
 // Common to all sync object is a waiting list and a flags field, other members depend on its semantic, ownership or notification.
 //
