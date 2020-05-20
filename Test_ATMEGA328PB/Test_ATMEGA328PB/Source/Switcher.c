@@ -424,14 +424,15 @@ SwitcherResult SwitcherCore(SwitchingSource source, void* stackPointer)
       if (nextTask == NULL)
       {
         nextTask = &g_IdleTask;
-      } 
-           
+      }
+
       Task* taskListIter = g_CurrentTask->m_pTaskListNext;
     
       // find next task == find first next none sleeping task with the highest priority
       do
       {
-        SWITCHER_ASSERT(taskListIter != NULL);
+        SWITCHER_ASSERT(taskListIter != NULL);        
+        SWITCHER_ASSERT(taskListIter->m_Priority >= taskListIter->m_BasePriority);
         
         SWITCHER_DISABLE_INTERRUPTS();
       
@@ -858,6 +859,7 @@ SwitcherError AddTask(Task* task,
   task->m_pWaitingListNext = NULL;
   task->m_pTaskWaitingList = NULL;
   task->m_pAcquiredList = NULL;
+  task->m_pIsWaitingFor = NULL;
   task->m_SleepCount = 0;
   task->m_PauseSwitchingCounter = 0;
 
@@ -888,7 +890,17 @@ SwitcherError AddTask(Task* task,
 
 void TaskStartup(TaskFunction taskFunction, void* taskParameter)
 {
+  SWITCHER_ASSERT(g_CurrentTask->m_pIsWaitingFor == NULL);
+  SWITCHER_ASSERT(g_CurrentTask->m_pAcquiredList == NULL);
+  SWITCHER_ASSERT(g_CurrentTask->m_pWaitingListNext == NULL);
+  SWITCHER_ASSERT(g_CurrentTask->m_SleepCount == 0);
+  
   taskFunction(taskParameter);  // call task function
+
+  SWITCHER_ASSERT(g_CurrentTask->m_pIsWaitingFor == NULL);
+  SWITCHER_ASSERT(g_CurrentTask->m_pAcquiredList == NULL);
+  SWITCHER_ASSERT(g_CurrentTask->m_pWaitingListNext == NULL);
+  SWITCHER_ASSERT(g_CurrentTask->m_SleepCount == 0);
   
   TerminateTask();
     
@@ -904,7 +916,9 @@ SwitcherError JoinTask(Task* task, Timeout timeout)
   }
   
   PauseSwitching();
-   
+
+  SWITCHER_ASSERT(g_CurrentTask->m_pIsWaitingFor == NULL);
+     
   if (task == g_CurrentTask)
   {
     ResumeSwitching();

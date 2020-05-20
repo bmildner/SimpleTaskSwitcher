@@ -25,7 +25,7 @@
 #endif
 #define FALSE 0
 
-typedef uint8_t Bool;
+typedef uint8_t Bool;  // TODO: change to <stdbool.h>!!
 
 #ifdef RAMPX
 # define SWITCHER_RAMPX_SIZE 1
@@ -151,6 +151,7 @@ typedef struct Task_
   Task*    m_pTaskWaitingList;       // pointer to task waiting list, other tasks waiting for this task to terminate, requires task switcher to be paused
 
   SyncObject* m_pAcquiredList;       // list of all currently acquired sync object by this task, requires task switcher to be paused
+  SyncObject* m_pIsWaitingFor;         // pointer to sync object the task is currently waiting for, requires task switcher to be paused
 
   Priority m_BasePriority;           // assigned base priority, requires task switcher to be paused
   Priority m_Priority;               // actual current priority, requires task switcher to be paused

@@ -19,12 +19,12 @@ SwitcherError LockMutex(Mutex* mutex, Timeout timeout)
     return SwitcherInvalidParameter;
   }
 
-  SWITCHER_ASSERT(mutex->m_SyncObject.m_HasOwnershipSemantic);
-
   PauseSwitching();
-
+  
+  SWITCHER_ASSERT(g_CurrentTask->m_pIsWaitingFor == NULL);
+  
   // no current owner
-  if (mutex->m_SyncObject.m_pCurrentOwner == NULL)
+  if (IsFreeSyncObject(&mutex->m_SyncObject))
   {
     SWITCHER_ASSERT(mutex->m_LockCount == 0);
     
@@ -38,11 +38,8 @@ SwitcherError LockMutex(Mutex* mutex, Timeout timeout)
   }
   
   // we already own it
-  if (mutex->m_SyncObject.m_pCurrentOwner == g_CurrentTask)
+  if (IsCurrentSyncObjectOwner(&mutex->m_SyncObject, g_CurrentTask))
   {
-    SWITCHER_ASSERT(g_CurrentTask->m_pAcquiredList != NULL);
-    SWITCHER_ASSERT(((mutex->m_SyncObject.m_pAcquiredListNext == NULL) && (g_CurrentTask->m_pAcquiredList == &mutex->m_SyncObject)) || 
-                    (mutex->m_SyncObject.m_pAcquiredListNext != NULL));
     SWITCHER_ASSERT(mutex->m_LockCount > 0);
     
     mutex->m_LockCount++;
@@ -52,8 +49,10 @@ SwitcherError LockMutex(Mutex* mutex, Timeout timeout)
     return SwitcherNoError;
   }
   
-  // someone else owns it
-  
+  // someone else owns it or is pending next owner
+
+  SWITCHER_ASSERT(!IsNextSyncObjectOwner(&mutex->m_SyncObject, g_CurrentTask));  // we can not be a pending next owner here
+    
   // exit with timeout if we do not want to wait
   if (timeout == TimeoutNone)
   {
@@ -67,42 +66,33 @@ SwitcherError LockMutex(Mutex* mutex, Timeout timeout)
   
   // sleep until we get ownership or we timeout
   Sleep(timeout);  // returns with task switcher paused
-  
-  SWITCHER_ASSERT(mutex->m_SyncObject.m_pCurrentOwner != NULL);
-  
+    
   // did we timeout
-  if (mutex->m_SyncObject.m_pCurrentOwner != g_CurrentTask)
+  if (!IsNextSyncObjectOwner(&mutex->m_SyncObject, g_CurrentTask))
   {
     // remove us from the waiting list
     UnqueueFromSyncObject(&mutex->m_SyncObject, g_CurrentTask);
+    
+    SWITCHER_ASSERT(g_CurrentTask->m_pIsWaitingFor == NULL);
     
     ResumeSwitching();
     
     return SwitcherTimeout;
   }
 
-  SWITCHER_ASSERT(mutex->m_SyncObject.m_pCurrentOwner == g_CurrentTask);
-  SWITCHER_ASSERT(mutex->m_SyncObject.m_HasPendingOwnership);
+  // we are the pending next owner
   
   // remove us from the waiting list
   UnqueueFromSyncObject(&mutex->m_SyncObject, g_CurrentTask);
 
-  // finish taking ownership  
+  // take ownership  
   AcquireSyncObject(&mutex->m_SyncObject, g_CurrentTask);
-  
-  // Is there someone waiting with a hight priority? 
-  // Someone may have been added to the waiting list between the release by the previous owner and us now taking ownership!
-  if ((mutex->m_SyncObject.m_pWaitingList != NULL) && 
-      (mutex->m_SyncObject.m_pWaitingList->m_Priority > g_CurrentTask->m_Priority))
-  {
-    g_CurrentTask->m_Priority = mutex->m_SyncObject.m_pWaitingList->m_Priority;
-  }
+
+  SWITCHER_ASSERT(g_CurrentTask->m_pIsWaitingFor == NULL);
+  SWITCHER_ASSERT(IsCurrentSyncObjectOwner(&mutex->m_SyncObject, g_CurrentTask));
+  SWITCHER_ASSERT(g_CurrentTask->m_pAcquiredList == &mutex->m_SyncObject);
   
   ResumeSwitching();
-
-  SWITCHER_ASSERT(mutex->m_SyncObject.m_pCurrentOwner == g_CurrentTask);
-  SWITCHER_ASSERT(!mutex->m_SyncObject.m_HasPendingOwnership);
-  SWITCHER_ASSERT(g_CurrentTask->m_pAcquiredList == &mutex->m_SyncObject);
   
   return SwitcherNoError;
 }
@@ -119,11 +109,12 @@ SwitcherError UnlockMutex(Mutex* mutex)
     return SwitcherInvalidParameter;
   }
 
-  SWITCHER_ASSERT(mutex->m_SyncObject.m_HasOwnershipSemantic);
-
   PauseSwitching();
+  
+  SWITCHER_ASSERT(g_CurrentTask->m_pIsWaitingFor == NULL);
 
-  if (mutex->m_SyncObject.m_pCurrentOwner != g_CurrentTask)
+  // we have to own the mutex to unlock it
+  if (!IsCurrentSyncObjectOwner(&mutex->m_SyncObject, g_CurrentTask))
   {
     ResumeSwitching();
     
