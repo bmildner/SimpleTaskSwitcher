@@ -45,8 +45,8 @@ static uint8_t g_IdleTaskStackBuffer[SWITCHER_TASK_STATE_SIZE * 2];  // TODO: co
 __attribute__((naked, used))
 void YieldImpl();
 
-__attribute__((naked, used, noreturn))
-void TerminateTaskImpl();
+__attribute__((naked, used))
+noreturn void TerminateTaskImpl();
 
 __attribute__((naked, used))
 void PauseSwitchingImpl();
@@ -78,7 +78,7 @@ static inline Task* SwitcherTickCore();
                 :: [src] "i"(source))
 
 __attribute__((used))
-static void TaskStartup(TaskFunction taskFunction, void* taskParameter);
+static noreturn void TaskStartup(TaskFunction taskFunction, void* taskParameter);
 
 typedef void (*TaskStartupFunctionPointer) (TaskFunction, void*);
 

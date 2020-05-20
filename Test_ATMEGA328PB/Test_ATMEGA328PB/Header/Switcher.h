@@ -12,6 +12,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <assert.h>
+#include <stdnoreturn.h>
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
@@ -176,8 +177,7 @@ SwitcherError Initialize(Task* mainTask);
 void Yield();
 
 // terminates the current task, does not return
-__attribute__ ((noreturn))
-void TerminateTask();
+noreturn void TerminateTask();
 
 // preserves the global interrupt flag and state of switcher IRQs
 // interrupts are enabled during execution but state is restored before return
