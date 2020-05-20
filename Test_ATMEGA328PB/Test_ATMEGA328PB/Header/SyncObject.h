@@ -163,6 +163,8 @@ static inline void AcquireSyncObject(SyncObject* syncObject, Task* task)
       (syncObject->m_pWaitingList->m_Priority > task->m_Priority))
   {
     task->m_Priority = syncObject->m_pWaitingList->m_Priority;
+    
+    SWITCHER_ASSERT(task->m_Priority > task->m_BasePriority);
   }
 }
 
@@ -221,7 +223,31 @@ static inline void ReleaseSyncObject(SyncObject* syncObject, Task* task)  // TOD
     
     SWITCHER_ENABLE_INTERRUPTS();
 
-    // task prios will be fixed up when next owner takes ownership of sync object    
+    // task priority for new owner will be fixed up when next owner takes ownership of sync object
+  }
+  
+  // do we have to check the priority of the releasing task?
+  if (task->m_Priority > task->m_BasePriority)
+  {
+    SWITCHER_ASSERT(task->m_pIsWaitingFor == NULL);
+    
+    // find highest priority in tasks acquired list that is higher than his base priority
+    Priority newPrio = task->m_BasePriority;
+    
+    SyncObject* syncObjectIter = task->m_pAcquiredList;
+    
+    while (syncObjectIter != NULL)
+    {
+      if ((syncObjectIter->m_pWaitingList != NULL) &&
+          (syncObjectIter->m_pWaitingList->m_Priority > newPrio))  // first task in waiting list always has highest priority
+      {
+        newPrio = syncObjectIter->m_pWaitingList->m_Priority;
+      }
+      
+      syncObjectIter = syncObjectIter->m_pAcquiredListNext;
+    }
+    
+    task->m_Priority = newPrio;
   }
 }
 
