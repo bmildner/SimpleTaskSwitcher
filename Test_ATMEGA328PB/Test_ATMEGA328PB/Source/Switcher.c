@@ -966,7 +966,7 @@ bool IsKnownTask(const Task* task)
   
   PauseSwitching();
   
-  Task* taskListIter = g_CurrentTask;
+  const Task* taskListIter = g_CurrentTask;
   
   do 
   {

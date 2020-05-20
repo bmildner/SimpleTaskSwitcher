@@ -65,7 +65,7 @@ typedef struct  SyncObject_  // all members require the task switcher to be paus
 // expects: task switcher is currently paused
 //          sync object has ownership semantic
 __attribute__((always_inline))
-static inline bool IsFreeSyncObject(SyncObject* syncObject)
+static inline bool IsFreeSyncObject(const SyncObject* syncObject)
 {
   SWITCHER_ASSERT(syncObject != NULL);
   SWITCHER_ASSERT(syncObject->m_HasOwnershipSemantic);
@@ -84,7 +84,7 @@ static inline bool IsFreeSyncObject(SyncObject* syncObject)
 // expects: task switcher is currently paused
 //          sync object has ownership semantic
 __attribute__((always_inline))
-static inline bool IsOwnedSyncObject(SyncObject* syncObject)
+static inline bool IsOwnedSyncObject(const SyncObject* syncObject)
 {
   SWITCHER_ASSERT(syncObject != NULL);
   SWITCHER_ASSERT(syncObject->m_HasOwnershipSemantic);
@@ -102,7 +102,7 @@ static inline bool IsOwnedSyncObject(SyncObject* syncObject)
 // expects: task switcher is currently paused
 //          sync object has ownership semantic
 __attribute__((always_inline))
-static inline bool IsCurrentSyncObjectOwner(SyncObject* syncObject, const Task* task)
+static inline bool IsCurrentSyncObjectOwner(const SyncObject* syncObject, const Task* task)
 {
   SWITCHER_ASSERT((syncObject != NULL) && (task != NULL));
   SWITCHER_ASSERT(syncObject->m_HasOwnershipSemantic);
@@ -121,7 +121,7 @@ static inline bool IsCurrentSyncObjectOwner(SyncObject* syncObject, const Task* 
 // expects: task switcher is currently paused
 //          sync object has ownership semantic
 __attribute__((always_inline))
-static inline bool IsNextSyncObjectOwner(SyncObject* syncObject, const Task* task)
+static inline bool IsNextSyncObjectOwner(const SyncObject* syncObject, const Task* task)
 {
   SWITCHER_ASSERT((syncObject != NULL) && (task != NULL));
   SWITCHER_ASSERT(syncObject->m_HasOwnershipSemantic);
@@ -234,7 +234,7 @@ static inline void ReleaseSyncObject(SyncObject* syncObject, Task* task)  // TOD
     // find highest priority in tasks acquired list that is higher than his base priority
     Priority newPrio = task->m_BasePriority;
     
-    SyncObject* syncObjectIter = task->m_pAcquiredList;
+    const SyncObject* syncObjectIter = task->m_pAcquiredList;
     
     while (syncObjectIter != NULL)
     {
@@ -352,7 +352,7 @@ static inline void UnqueueFromSyncObject(SyncObject* syncObject, Task* task)  //
     Priority newPrio = syncObject->m_pCurrentOwner->m_BasePriority;
     
     // find new highest prio in all waiting lists of current owners acquired list
-    SyncObject* syncObjectIter = syncObject->m_pCurrentOwner->m_pAcquiredList;
+    const SyncObject* syncObjectIter = syncObject->m_pCurrentOwner->m_pAcquiredList;
     
     SWITCHER_ASSERT(syncObjectIter != NULL);
 
