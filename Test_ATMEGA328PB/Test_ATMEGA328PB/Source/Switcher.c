@@ -393,7 +393,7 @@ SwitcherResult SwitcherCore(SwitchingSource source, void* stackPointer)
   Task* nextTask = NULL;
   bool done = false;
 
-  while (!done)
+  do
   {    
     if (source == SwitcherTick)
     {      
@@ -500,7 +500,7 @@ SwitcherResult SwitcherCore(SwitchingSource source, void* stackPointer)
     {
       done = true; 
     }
-  }  // while
+  } while (!done)
 
   SWITCHER_ASSERT(nextTask != NULL);
   

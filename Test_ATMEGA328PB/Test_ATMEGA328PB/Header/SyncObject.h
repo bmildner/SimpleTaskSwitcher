@@ -347,7 +347,7 @@ static inline void UnqueueFromSyncObject(SyncObject* syncObject, Task* task)  //
   if (syncObject->m_HasOwnershipSemantic &&
       IsOwnedSyncObject(syncObject) &&
       (syncObject->m_pCurrentOwner->m_BasePriority < syncObject->m_pCurrentOwner->m_Priority) &&
-      (syncObject->m_pCurrentOwner->m_Priority == task->m_Priority))  // TODO: do we have to inherit prio changes recursively to all tasks which prio depends on this owner !?!?!?
+      (syncObject->m_pCurrentOwner->m_Priority == task->m_Priority))
   {
     Priority newPrio = syncObject->m_pCurrentOwner->m_BasePriority;
     
