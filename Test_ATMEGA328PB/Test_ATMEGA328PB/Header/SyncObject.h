@@ -50,6 +50,7 @@ typedef struct  SyncObject_  // all members require the task switcher to be paus
       Task*       m_pCurrentOwner;      // current owner task, must not be set in state "pending new owner"!
       Task*       m_pNextOwner;         // task that has been woken up by previous owner to become the new owner 
                                         // Needed to distinguish between timeout and pending ownership for a task.
+                                        // TODO: can we remove this member and use m_pCurrentOwner + a new flag instead?
     };
     
     struct  // members for notification/event semantic 
