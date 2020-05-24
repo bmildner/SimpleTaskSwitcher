@@ -500,7 +500,7 @@ SwitcherResult SwitcherCore(SwitchingSource source, void* stackPointer)
     {
       done = true; 
     }
-  } while (!done)
+  } while (!done);
 
   SWITCHER_ASSERT(nextTask != NULL);
   
