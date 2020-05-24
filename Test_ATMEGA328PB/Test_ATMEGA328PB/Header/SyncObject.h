@@ -11,7 +11,7 @@
 #include "Switcher.h"
 
 
-// SyncObject is the common base for all synchronization objects (like (recursive) mutex, semaphor, event, ...).
+// SyncObject is the common base for all synchronization objects (like (recursive) mutex, semaphore, event, ...).
 // A sync object has either ownership or notification/event semantic, depending on the needs of the synchronization object using it.
 // Common to all sync object is a waiting list and a flags field, other members depend on its semantic, ownership or notification.
 //
@@ -252,20 +252,18 @@ static inline void ReleaseSyncObject(SyncObject* syncObject, Task* task)  // TOD
 }
 
 
+// Do not use directly! Internal use in SyncObject implementation only!
+//
 // expects: task switcher is currently paused
-//          task is not already waiting for another sync object
-//          if sync object has ownership semantic it must not be in state Free
+//          task is not already waiting for this or any other sync object
 __attribute__((always_inline))
-static inline void QueueForSyncObject(SyncObject* syncObject, Task* task)  // TODO: really inline or not ...
-{
-  SWITCHER_ASSERT((syncObject != NULL) && (task != NULL));
-  SWITCHER_ASSERT((syncObject->m_HasOwnershipSemantic && !IsFreeSyncObject(syncObject) && !IsCurrentSyncObjectOwner(syncObject, task)) ||
-                   !syncObject->m_HasOwnershipSemantic);
-  SWITCHER_ASSERT(task->m_pIsWaitingFor == NULL);
-  
+static inline void AddTaskToSyncObjectsWaitingList(SyncObject* syncObject, Task* task)
+{    
   // add task to waiting list
   if (syncObject->m_pWaitingList == NULL)
   {
+    SWITCHER_ASSERT(task->m_pWaitingListNext == NULL);
+    
     syncObject->m_pWaitingList = task;
   }
   else
@@ -287,35 +285,16 @@ static inline void QueueForSyncObject(SyncObject* syncObject, Task* task)  // TO
   }
   
   // set is waiting for member in task to sync object
-  task->m_pIsWaitingFor = syncObject;
-  
-  // check for priority inversion if we have ownership semantic and there is a current owner
-  if (syncObject->m_HasOwnershipSemantic &&
-      IsOwnedSyncObject(syncObject) &&
-      (syncObject->m_pCurrentOwner->m_Priority < task->m_Priority))
-  {
-    // grant current owner or own priority
-    syncObject->m_pCurrentOwner->m_Priority = task->m_Priority;
-    
-    // check if owner is currently waiting of another sync object so we can (recursively!) update his position in the waiting list and also update the owners prio
-    if (syncObject->m_pCurrentOwner->m_pIsWaitingFor != NULL)
-    {
-      // TODO: fix position in waiting list!
-      // TODO: if owner is waiting for an sync object with ownership semantic we might also have to bump the owners prio!
-    }
-  }
+  task->m_pIsWaitingFor = syncObject;  
 }
 
+// Do not use directly! Internal use in SyncObject implementation only!
+//
 // expects: task switcher is currently paused
-//          task is currently waiting for the sync object (and with ownership semantic we must not be the current owner, but may be pending new owner)
+//          task is currently waiting for this sync object
 __attribute__((always_inline))
-static inline void UnqueueFromSyncObject(SyncObject* syncObject, Task* task)  // TODO: really inline or not ...
+static inline void RemoveTaskFromSyncObjectsWaitingList(SyncObject* syncObject, Task* task)
 {
-  SWITCHER_ASSERT((syncObject != NULL) && (task != NULL));  
-  SWITCHER_ASSERT(syncObject->m_pWaitingList != NULL);
-  SWITCHER_ASSERT(task->m_pIsWaitingFor == syncObject);
-  SWITCHER_ASSERT(!IsCurrentSyncObjectOwner(syncObject, task));
-  
   // remove task from waiting list
   if (syncObject->m_pWaitingList == task)
   {
@@ -342,23 +321,72 @@ static inline void UnqueueFromSyncObject(SyncObject* syncObject, Task* task)  //
   
   task->m_pWaitingListNext = NULL;
   task->m_pIsWaitingFor = NULL;
+}
+
+// expects: task switcher is currently paused
+//          task is not already waiting for another sync object
+//          if sync object has ownership semantic it must not be in state Free
+__attribute__((always_inline))
+static inline void QueueForSyncObject(SyncObject* syncObject, Task* task)  // TODO: really inline or not ...
+{
+  SWITCHER_ASSERT((syncObject != NULL) && (task != NULL));
+  SWITCHER_ASSERT((syncObject->m_HasOwnershipSemantic && !IsFreeSyncObject(syncObject) && !IsCurrentSyncObjectOwner(syncObject, task)) ||
+                   !syncObject->m_HasOwnershipSemantic);
+  SWITCHER_ASSERT(task->m_pIsWaitingFor == NULL);
   
-  // do we have to change the owners priority, only needed for ownership semantic
-  if (syncObject->m_HasOwnershipSemantic &&
-      IsOwnedSyncObject(syncObject) &&
-      (syncObject->m_pCurrentOwner->m_BasePriority < syncObject->m_pCurrentOwner->m_Priority) &&
-      (syncObject->m_pCurrentOwner->m_Priority == task->m_Priority))
+  // add task to waiting list according to his priority
+  AddTaskToSyncObjectsWaitingList(syncObject, task);
+  
+  // check for priority inversion, in case of ownership semantic, if there is a current owner and his priority is lower than our priority
+  while ((syncObject != NULL) &&
+         syncObject->m_HasOwnershipSemantic &&
+         IsOwnedSyncObject(syncObject) &&
+         (syncObject->m_pCurrentOwner->m_Priority < task->m_Priority))
+  {
+    // grant current owner our own priority
+    syncObject->m_pCurrentOwner->m_Priority = task->m_Priority;
+    
+    // check if owner is currently waiting of another sync object so we can (recursively!) update his position in the waiting list and also update the owners priority if necessary
+    if (syncObject->m_pCurrentOwner->m_pIsWaitingFor != NULL)
+    {
+      // fix position in waiting list!
+      RemoveTaskFromSyncObjectsWaitingList(syncObject->m_pCurrentOwner->m_pIsWaitingFor, syncObject->m_pCurrentOwner);
+      AddTaskToSyncObjectsWaitingList(syncObject->m_pCurrentOwner->m_pIsWaitingFor, syncObject->m_pCurrentOwner);      
+    }
+    
+    // if owner is waiting for an sync object might also have to bump the owners priority of that sync object!
+    syncObject = syncObject->m_pCurrentOwner->m_pIsWaitingFor;
+  }
+}
+
+// expects: task switcher is currently paused
+//          task is currently waiting for the sync object (and with ownership semantic we must not be the current owner, but may be pending new owner)
+__attribute__((always_inline))
+static inline void UnqueueFromSyncObject(SyncObject* syncObject, Task* task)  // TODO: really inline or not ...
+{
+  SWITCHER_ASSERT((syncObject != NULL) && (task != NULL));  
+  SWITCHER_ASSERT(syncObject->m_pWaitingList != NULL);
+  SWITCHER_ASSERT(task->m_pIsWaitingFor == syncObject);
+  SWITCHER_ASSERT(!IsCurrentSyncObjectOwner(syncObject, task));
+  
+  RemoveTaskFromSyncObjectsWaitingList(syncObject, task);
+    
+  // do we have to check the owners priority, only needed for ownership semantic
+  while (syncObject->m_HasOwnershipSemantic &&
+         IsOwnedSyncObject(syncObject) &&
+         (syncObject->m_pCurrentOwner->m_BasePriority < syncObject->m_pCurrentOwner->m_Priority) &&
+         (syncObject->m_pCurrentOwner->m_Priority == task->m_Priority))
   {
     Priority newPrio = syncObject->m_pCurrentOwner->m_BasePriority;
     
-    // find new highest prio in all waiting lists of current owners acquired list
+    // find new highest priority in all waiting lists of current owners acquired list
     const SyncObject* syncObjectIter = syncObject->m_pCurrentOwner->m_pAcquiredList;
     
     SWITCHER_ASSERT(syncObjectIter != NULL);
 
     while (syncObjectIter != NULL)
     {
-      // only consider sync objects with ownership, first in waiting list has highest prio
+      // only consider sync objects with ownership, first in waiting list has highest priority
       if (syncObjectIter->m_HasOwnershipSemantic &&
           (syncObjectIter->m_pWaitingList != NULL) && 
           (syncObjectIter->m_pWaitingList->m_Priority > newPrio))
@@ -367,18 +395,29 @@ static inline void UnqueueFromSyncObject(SyncObject* syncObject, Task* task)  //
       }
     }
 
-    // no need to trigger a forced switch here, the new prio can only be <= our own prio!
+    // no need to trigger a forced switch here, the new priority can only be <= our own priority!
     SWITCHER_ASSERT(newPrio <= task->m_Priority);
     SWITCHER_ASSERT(newPrio >= syncObject->m_pCurrentOwner->m_BasePriority);
-
-    syncObject->m_pCurrentOwner->m_Priority = newPrio;
     
-    // check if owner is currently waiting of another sync object so we can (recursively!) update his position in the waiting list and also update the owners prio
-    if (syncObject->m_pCurrentOwner->m_pIsWaitingFor != NULL)
+    // check if owner is currently waiting of another sync object so we can (recursively!) update his position in the waiting list and also update the owners priority
+    if ((syncObject->m_pCurrentOwner->m_Priority != newPrio) &&
+       (syncObject->m_pCurrentOwner->m_pIsWaitingFor != NULL))
     {
-      // TODO: fix position in waiting list!
-      // TODO: if owner is waiting for an sync object with ownership semantic we might also have to bump the owners prio!
+      // set new priority
+      syncObject->m_pCurrentOwner->m_Priority = newPrio;
+      
+      // fix position in waiting list!
+      RemoveTaskFromSyncObjectsWaitingList(syncObject->m_pCurrentOwner->m_pIsWaitingFor, syncObject->m_pCurrentOwner);
+      AddTaskToSyncObjectsWaitingList(syncObject->m_pCurrentOwner->m_pIsWaitingFor, syncObject->m_pCurrentOwner);
     }
+    else
+    {
+      // set new priority
+      syncObject->m_pCurrentOwner->m_Priority = newPrio;
+    }
+
+    // if owner is waiting for an sync object with ownership semantic we might also have to bump the owners priority!    
+    syncObject = syncObject->m_pCurrentOwner->m_pIsWaitingFor;
   }
 }
 
