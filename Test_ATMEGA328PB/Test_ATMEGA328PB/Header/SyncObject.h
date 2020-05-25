@@ -153,7 +153,7 @@ static inline void AcquireSyncObject(SyncObject* syncObject, Task* task)
   syncObject->m_pAcquiredListNext = task->m_pAcquiredList;
   task->m_pAcquiredList = syncObject;
   
-  // check for higher prio task in waiting list (someone may have queued up between prev owners release and us taking ownership!)
+  // check for higher priority task in waiting list (someone may have queued up between previous owners release and us taking ownership!)
   if ((syncObject->m_pWaitingList != NULL) && 
       (syncObject->m_pWaitingList->m_Priority > task->m_Priority))
   {
