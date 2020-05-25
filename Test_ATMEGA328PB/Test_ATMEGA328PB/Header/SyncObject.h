@@ -17,14 +17,14 @@
 //
 // Possible states for ownership semantic:
 //    - Free:              not owned, no one waiting 
-//                         (m_pCurrentOwner == NULL, m_pWaitingList == NULL, m_pNextOwner == NULL)
+//                         (m_pCurrentOrNextOwner == NULL, m_pWaitingList == NULL, m_HasPendingNewOwner == false)
 //
 //    - Owned:             has current owner, there may or may not be someone waiting
-//                         (m_pCurrentOwner != NULL, m_pWaitingList != NULL or m_pWaitingList == NULL, m_pNextOwner == NULL)
+//                         (m_pCurrentOrNextOwner != NULL, m_pWaitingList != NULL or m_pWaitingList == NULL, m_HasPendingNewOwner == false)
 //
-//    - Pending new owner: has no current owner set, there is someone waiting 
-//                         (m_pCurrentOwner == NULL, m_pWaitingList != NULL, m_pNextOwner != NULL)
-//                         The previous owner has released the sync object and and woken up the next owner according to the waiting list at the time.
+//    - Pending new owner: has no current owner, there is someone waiting 
+//                         (m_pCurrentOrNextOwner != NULL, m_pWaitingList != NULL, m_HasPendingNewOwner = true)
+//                         The previous owner has released the sync object and woken up the next owner according to the waiting list at the time.
 //                         Any task trying to acquire a sync object in this state has to queue up in the waiting list even if it has a higher priority
 //                         than anyone already waiting (incl. the task woken by the previous owner!).
 //
@@ -39,6 +39,7 @@ typedef struct  SyncObject_  // all members require the task switcher to be paus
     struct    
     {
       bool m_HasOwnershipSemantic : 1;  // set if sync object is used with ownership semantic, notification/event semantic otherwise
+      bool m_HasPendingNewOwner : 1;    // set if state is "Pending new Owner"
     };
   };       
   
@@ -46,11 +47,8 @@ typedef struct  SyncObject_  // all members require the task switcher to be paus
   {
     struct  // members for ownership semantic
     {
-      SyncObject* m_pAcquiredListNext;  // acquired list next pointer, next pointer for list of all currently acquired sync objects by current owner
-      Task*       m_pCurrentOwner;      // current owner task, must not be set in state "pending new owner"!
-      Task*       m_pNextOwner;         // task that has been woken up by previous owner to become the new owner 
-                                        // Needed to distinguish between timeout and pending ownership for a task.
-                                        // TODO: can we remove this member and use m_pCurrentOwner + a new flag instead?
+      SyncObject* m_pAcquiredListNext;    // acquired list next pointer, next pointer for list of all currently acquired sync objects by current owner
+      Task*       m_pCurrentOrNextOwner;  // current or next owner task, 
     };
     
     struct  // members for notification/event semantic 
@@ -60,7 +58,7 @@ typedef struct  SyncObject_  // all members require the task switcher to be paus
   };    
 } SyncObject;
 
-#define SWITCHER_SYNCOBJECT_WITH_OWNERSHIP_STATIC_INIT()    {.m_pWaitingList = NULL, .m_Flags = 0, .m_HasOwnershipSemantic = true,  .m_pAcquiredListNext = NULL, .m_pCurrentOwner = NULL, .m_pNextOwner = NULL}
+#define SWITCHER_SYNCOBJECT_WITH_OWNERSHIP_STATIC_INIT()    {.m_pWaitingList = NULL, .m_Flags = 0, .m_HasOwnershipSemantic = true,  .m_pAcquiredListNext = NULL, .m_pCurrentOrNextOwner = NULL}
 #define SWITCHER_SYNCOBJECT_WITH_NOTIFICATION_STATIC_INIT() {.m_pWaitingList = NULL, .m_Flags = 0, .m_HasOwnershipSemantic = false, .m_pNotificationList = NULL}
 
 // expects: task switcher is currently paused
@@ -71,9 +69,10 @@ static inline bool IsFreeSyncObject(const SyncObject* syncObject)
   SWITCHER_ASSERT(syncObject != NULL);
   SWITCHER_ASSERT(syncObject->m_HasOwnershipSemantic);
   
-  if ((syncObject->m_pCurrentOwner == NULL) && (syncObject->m_pWaitingList == NULL))
+  if (syncObject->m_pCurrentOrNextOwner == NULL)
   {
-    SWITCHER_ASSERT(syncObject->m_pNextOwner == NULL);
+    SWITCHER_ASSERT(!syncObject->m_HasPendingNewOwner);
+    SWITCHER_ASSERT(syncObject->m_pWaitingList == NULL);
     SWITCHER_ASSERT(syncObject->m_pAcquiredListNext == NULL);
     
     return true;
@@ -90,10 +89,8 @@ static inline bool IsOwnedSyncObject(const SyncObject* syncObject)
   SWITCHER_ASSERT(syncObject != NULL);
   SWITCHER_ASSERT(syncObject->m_HasOwnershipSemantic);
 
-  if (syncObject->m_pCurrentOwner != NULL)
+  if ((syncObject->m_pCurrentOrNextOwner != NULL) && (!syncObject->m_HasPendingNewOwner))
   {
-    SWITCHER_ASSERT(syncObject->m_pNextOwner == NULL);
-    
     return true;
   }
   
@@ -108,9 +105,8 @@ static inline bool IsCurrentSyncObjectOwner(const SyncObject* syncObject, const 
   SWITCHER_ASSERT((syncObject != NULL) && (task != NULL));
   SWITCHER_ASSERT(syncObject->m_HasOwnershipSemantic);
   
-  if (syncObject->m_pCurrentOwner == task)
+  if ((syncObject->m_pCurrentOrNextOwner == task) && (!syncObject->m_HasPendingNewOwner))
   {
-    SWITCHER_ASSERT(syncObject->m_pNextOwner == NULL);
     SWITCHER_ASSERT(task->m_pAcquiredList != NULL);
     
     return true;
@@ -127,11 +123,9 @@ static inline bool IsNextSyncObjectOwner(const SyncObject* syncObject, const Tas
   SWITCHER_ASSERT((syncObject != NULL) && (task != NULL));
   SWITCHER_ASSERT(syncObject->m_HasOwnershipSemantic);
   
-  if (syncObject->m_pNextOwner == task)
+  if ((syncObject->m_pCurrentOrNextOwner == task) && (syncObject->m_HasPendingNewOwner))
   {
-    SWITCHER_ASSERT(syncObject->m_pCurrentOwner == NULL);
     SWITCHER_ASSERT(syncObject->m_pWaitingList != NULL);
-    SWITCHER_ASSERT(syncObject->m_pAcquiredListNext == NULL);
     
     return true;
   }
@@ -150,10 +144,10 @@ static inline void AcquireSyncObject(SyncObject* syncObject, Task* task)
   SWITCHER_ASSERT(IsFreeSyncObject(syncObject) || IsNextSyncObjectOwner(syncObject, task));
   
   // set new owner
-  syncObject->m_pCurrentOwner = task;
+  syncObject->m_pCurrentOrNextOwner = task;
   
-  // reset next owner ptr
-  syncObject->m_pNextOwner = NULL;
+  // reset has pending new owner flag
+  syncObject->m_HasPendingNewOwner = false;
   
   // add sync object to acquired list
   syncObject->m_pAcquiredListNext = task->m_pAcquiredList;
@@ -204,27 +198,30 @@ static inline void ReleaseSyncObject(SyncObject* syncObject, Task* task)  // TOD
   }
   
   syncObject->m_pAcquiredListNext = NULL;
-  
-  syncObject->m_pCurrentOwner = NULL;
-  
+
   // set new pending ownership if a task is in the waiting list
   if (syncObject->m_pWaitingList != NULL)
   {
     // set pending new ownership
-    syncObject->m_pNextOwner = syncObject->m_pWaitingList;  // new owner is always in front for waiting list
-        
+    syncObject->m_pCurrentOrNextOwner = syncObject->m_pWaitingList;  // new owner is always in front for waiting list
+    syncObject->m_HasPendingNewOwner = true;
+    
     SWITCHER_DISABLE_INTERRUPTS();
     
     // wake new owner if he is sleeping
-    if (syncObject->m_pNextOwner->m_SleepCount > 0)
+    if (syncObject->m_pCurrentOrNextOwner->m_SleepCount > 0)
     {
-      syncObject->m_pNextOwner->m_SleepCount = 0;
+      syncObject->m_pCurrentOrNextOwner->m_SleepCount = 0;
       g_ActiveTasks++;
     }
     
     SWITCHER_ENABLE_INTERRUPTS();
 
     // task priority for new owner will be fixed up when next owner takes ownership of sync object
+  }
+  else
+  {
+    syncObject->m_pCurrentOrNextOwner = NULL;
   }
   
   // do we have to check the priority of the releasing task?
@@ -259,12 +256,12 @@ static inline void ReleaseSyncObject(SyncObject* syncObject, Task* task)  // TOD
 //          task is not already waiting for this or any other sync object
 __attribute__((always_inline))
 static inline void AddTaskToSyncObjectsWaitingList(SyncObject* syncObject, Task* task)
-{    
+{
+  SWITCHER_ASSERT(task->m_pWaitingListNext == NULL);
+      
   // add task to waiting list
   if (syncObject->m_pWaitingList == NULL)
   {
-    SWITCHER_ASSERT(task->m_pWaitingListNext == NULL);
-    
     syncObject->m_pWaitingList = task;
   }
   else
@@ -296,6 +293,8 @@ static inline void AddTaskToSyncObjectsWaitingList(SyncObject* syncObject, Task*
 __attribute__((always_inline))
 static inline void RemoveTaskFromSyncObjectsWaitingList(SyncObject* syncObject, Task* task)
 {
+  SWITCHER_ASSERT(task->m_pWaitingListNext != NULL);
+  
   // remove task from waiting list
   if (syncObject->m_pWaitingList == task)
   {
@@ -342,21 +341,21 @@ static inline void QueueForSyncObject(SyncObject* syncObject, Task* task)  // TO
   while ((syncObject != NULL) &&
          syncObject->m_HasOwnershipSemantic &&
          IsOwnedSyncObject(syncObject) &&
-         (syncObject->m_pCurrentOwner->m_Priority < task->m_Priority))
+         (syncObject->m_pCurrentOrNextOwner->m_Priority < task->m_Priority))
   {
     // grant current owner our own priority
-    syncObject->m_pCurrentOwner->m_Priority = task->m_Priority;
+    syncObject->m_pCurrentOrNextOwner->m_Priority = task->m_Priority;
     
     // check if owner is currently waiting of another sync object so we can (recursively!) update his position in the waiting list and also update the owners priority if necessary
-    if (syncObject->m_pCurrentOwner->m_pIsWaitingFor != NULL)
+    if (syncObject->m_pCurrentOrNextOwner->m_pIsWaitingFor != NULL)
     {
       // fix position in waiting list!
-      RemoveTaskFromSyncObjectsWaitingList(syncObject->m_pCurrentOwner->m_pIsWaitingFor, syncObject->m_pCurrentOwner);
-      AddTaskToSyncObjectsWaitingList(syncObject->m_pCurrentOwner->m_pIsWaitingFor, syncObject->m_pCurrentOwner);      
+      RemoveTaskFromSyncObjectsWaitingList(syncObject->m_pCurrentOrNextOwner->m_pIsWaitingFor, syncObject->m_pCurrentOrNextOwner);
+      AddTaskToSyncObjectsWaitingList(syncObject->m_pCurrentOrNextOwner->m_pIsWaitingFor, syncObject->m_pCurrentOrNextOwner);      
     }
     
     // if owner is waiting for an sync object might also have to bump the owners priority of that sync object!
-    syncObject = syncObject->m_pCurrentOwner->m_pIsWaitingFor;
+    syncObject = syncObject->m_pCurrentOrNextOwner->m_pIsWaitingFor;
   }
 }
 
@@ -375,13 +374,13 @@ static inline void UnqueueFromSyncObject(SyncObject* syncObject, Task* task)  //
   // do we have to check the owners priority, only needed for ownership semantic
   while (syncObject->m_HasOwnershipSemantic &&
          IsOwnedSyncObject(syncObject) &&
-         (syncObject->m_pCurrentOwner->m_BasePriority < syncObject->m_pCurrentOwner->m_Priority) &&
-         (syncObject->m_pCurrentOwner->m_Priority == task->m_Priority))
+         (syncObject->m_pCurrentOrNextOwner->m_BasePriority < syncObject->m_pCurrentOrNextOwner->m_Priority) &&
+         (syncObject->m_pCurrentOrNextOwner->m_Priority == task->m_Priority))
   {
-    Priority newPrio = syncObject->m_pCurrentOwner->m_BasePriority;
+    Priority newPrio = syncObject->m_pCurrentOrNextOwner->m_BasePriority;
     
     // find new highest priority in all waiting lists of current owners acquired list
-    const SyncObject* syncObjectIter = syncObject->m_pCurrentOwner->m_pAcquiredList;
+    const SyncObject* syncObjectIter = syncObject->m_pCurrentOrNextOwner->m_pAcquiredList;
     
     SWITCHER_ASSERT(syncObjectIter != NULL);
 
@@ -398,27 +397,27 @@ static inline void UnqueueFromSyncObject(SyncObject* syncObject, Task* task)  //
 
     // no need to trigger a forced switch here, the new priority can only be <= our own priority!
     SWITCHER_ASSERT(newPrio <= task->m_Priority);
-    SWITCHER_ASSERT(newPrio >= syncObject->m_pCurrentOwner->m_BasePriority);
+    SWITCHER_ASSERT(newPrio >= syncObject->m_pCurrentOrNextOwner->m_BasePriority);
     
     // check if owner is currently waiting of another sync object so we can (recursively!) update his position in the waiting list and also update the owners priority
-    if ((syncObject->m_pCurrentOwner->m_Priority != newPrio) &&
-       (syncObject->m_pCurrentOwner->m_pIsWaitingFor != NULL))
+    if ((syncObject->m_pCurrentOrNextOwner->m_Priority != newPrio) &&
+       (syncObject->m_pCurrentOrNextOwner->m_pIsWaitingFor != NULL))
     {
       // set new priority
-      syncObject->m_pCurrentOwner->m_Priority = newPrio;
+      syncObject->m_pCurrentOrNextOwner->m_Priority = newPrio;
       
       // fix position in waiting list!
-      RemoveTaskFromSyncObjectsWaitingList(syncObject->m_pCurrentOwner->m_pIsWaitingFor, syncObject->m_pCurrentOwner);
-      AddTaskToSyncObjectsWaitingList(syncObject->m_pCurrentOwner->m_pIsWaitingFor, syncObject->m_pCurrentOwner);
+      RemoveTaskFromSyncObjectsWaitingList(syncObject->m_pCurrentOrNextOwner->m_pIsWaitingFor, syncObject->m_pCurrentOrNextOwner);
+      AddTaskToSyncObjectsWaitingList(syncObject->m_pCurrentOrNextOwner->m_pIsWaitingFor, syncObject->m_pCurrentOrNextOwner);
     }
     else
     {
       // set new priority
-      syncObject->m_pCurrentOwner->m_Priority = newPrio;
+      syncObject->m_pCurrentOrNextOwner->m_Priority = newPrio;
     }
 
     // if owner is waiting for an sync object with ownership semantic we might also have to bump the owners priority!    
-    syncObject = syncObject->m_pCurrentOwner->m_pIsWaitingFor;
+    syncObject = syncObject->m_pCurrentOrNextOwner->m_pIsWaitingFor;
   }
 }
 
