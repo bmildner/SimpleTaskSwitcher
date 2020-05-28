@@ -191,6 +191,9 @@
     </ToolchainSettings>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="Header\Event.h">
+      <SubType>compile</SubType>
+    </Compile>
     <Compile Include="Header\Mutex.h">
       <SubType>compile</SubType>
     </Compile>
@@ -204,6 +207,9 @@
       <SubType>compile</SubType>
     </Compile>
     <Compile Include="Header\SyncObject.h">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="Source\Event.c">
       <SubType>compile</SubType>
     </Compile>
     <Compile Include="Source\Main.c">

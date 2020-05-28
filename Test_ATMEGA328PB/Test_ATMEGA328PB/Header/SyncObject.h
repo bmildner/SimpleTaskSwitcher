@@ -53,13 +53,12 @@ typedef struct  SyncObject_  // all members require the task switcher to be paus
     
     struct  // members for notification/event semantic 
     {
-      Task* m_pNotificationList;  // list of all notified tasks, uses m_pWaitingListNext member in task struct
     };
   };    
 } SyncObject;
 
 #define SWITCHER_SYNCOBJECT_WITH_OWNERSHIP_STATIC_INIT()    {.m_pWaitingList = NULL, .m_Flags = 0, .m_HasOwnershipSemantic = true,  .m_pAcquiredListNext = NULL, .m_pCurrentOrNextOwner = NULL}
-#define SWITCHER_SYNCOBJECT_WITH_NOTIFICATION_STATIC_INIT() {.m_pWaitingList = NULL, .m_Flags = 0, .m_HasOwnershipSemantic = false, .m_pNotificationList = NULL}
+#define SWITCHER_SYNCOBJECT_WITH_NOTIFICATION_STATIC_INIT() {.m_pWaitingList = NULL, .m_Flags = 0, .m_HasOwnershipSemantic = false}
 
 // expects: task switcher is currently paused
 //          sync object has ownership semantic
@@ -167,6 +166,18 @@ static inline void AcquireSyncObject(SyncObject* syncObject, Task* task)
 //          sync object has ownership semantic
 //          task is the current owner of the sync object
 void ReleaseSyncObject(SyncObject* syncObject, Task* task);
+
+
+// expects: task switcher is currently paused
+//          sync object has notification semantic
+//          there is at least one task waiting
+void SyncObjectNotifyOne(SyncObject* syncObject);
+
+// expects: task switcher is currently paused
+//          sync object has notification semantic
+//          there is at least one task waiting
+void SyncObjectNotifyAll(SyncObject* syncObject);
+
 
 // expects: task switcher is currently paused
 //          task is not already waiting for another sync object

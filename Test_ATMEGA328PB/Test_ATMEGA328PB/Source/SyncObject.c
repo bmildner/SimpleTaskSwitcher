@@ -25,7 +25,7 @@ static inline void AddTaskToSyncObjectsWaitingList(SyncObject* syncObject, Task*
     Task* taskIter = syncObject->m_pWaitingList;
     
     while ((taskIter->m_pWaitingListNext != NULL) &&
-    (taskIter->m_pWaitingListNext->m_Priority >= task->m_Priority))
+           (taskIter->m_pWaitingListNext->m_Priority >= task->m_Priority))
     {
       taskIter = taskIter->m_pWaitingListNext;
     }
@@ -147,7 +147,7 @@ void ReleaseSyncObject(SyncObject* syncObject, Task* task)
     while (syncObjectIter != NULL)
     {
       if ((syncObjectIter->m_pWaitingList != NULL) &&
-      (syncObjectIter->m_pWaitingList->m_Priority > newPrio))  // first task in waiting list always has highest priority
+          (syncObjectIter->m_pWaitingList->m_Priority > newPrio))  // first task in waiting list always has highest priority
       {
         newPrio = syncObjectIter->m_pWaitingList->m_Priority;
       }
@@ -159,11 +159,58 @@ void ReleaseSyncObject(SyncObject* syncObject, Task* task)
   }
 }
 
+
+// expects: task switcher is currently paused
+//          sync object has notification semantic
+//          there is at least one task waiting
+__attribute__((always_inline))
+static inline void SyncObjectNotifyOneImpl(SyncObject* syncObject)
+{
+  Task* task = syncObject->m_pWaitingList;
+  
+  RemoveTaskFromSyncObjectsWaitingList(syncObject, task);
+  
+  SWITCHER_DISABLE_INTERRUPTS();
+  
+  // wake task if he is sleeping
+  if (task->m_SleepCount > 0)
+  {
+    task->m_SleepCount = 0;
+    g_ActiveTasks++;
+  }
+  
+  SWITCHER_ENABLE_INTERRUPTS();
+}
+
+void SyncObjectNotifyOne(SyncObject* syncObject)
+{
+  SWITCHER_ASSERT(syncObject != NULL);
+  SWITCHER_ASSERT(!syncObject->m_HasOwnershipSemantic);
+  SWITCHER_ASSERT(syncObject->m_pWaitingList != NULL);
+
+  SyncObjectNotifyOneImpl(syncObject);  
+}
+
+void SyncObjectNotifyAll(SyncObject* syncObject)
+{
+  SWITCHER_ASSERT(syncObject != NULL);
+  SWITCHER_ASSERT(!syncObject->m_HasOwnershipSemantic);
+  SWITCHER_ASSERT(syncObject->m_pWaitingList != NULL);
+
+  do 
+  {
+    SyncObjectNotifyOneImpl(syncObject);
+  } while (syncObject->m_pWaitingList != NULL);
+  
+  SWITCHER_ASSERT(syncObject->m_pWaitingList == NULL);
+}
+
+
 void QueueForSyncObject(SyncObject* syncObject, Task* task)
 {
   SWITCHER_ASSERT((syncObject != NULL) && (task != NULL));
   SWITCHER_ASSERT((syncObject->m_HasOwnershipSemantic && !IsFreeSyncObject(syncObject) && !IsCurrentSyncObjectOwner(syncObject, task)) ||
-  !syncObject->m_HasOwnershipSemantic);
+                  !syncObject->m_HasOwnershipSemantic);
   SWITCHER_ASSERT(task->m_pIsWaitingFor == NULL);
   
   // add task to waiting list according to his priority
@@ -171,9 +218,9 @@ void QueueForSyncObject(SyncObject* syncObject, Task* task)
   
   // check for priority inversion, in case of ownership semantic, if there is a current owner and his priority is lower than our priority
   while ((syncObject != NULL) &&
-  syncObject->m_HasOwnershipSemantic &&
-  IsOwnedSyncObject(syncObject) &&
-  (syncObject->m_pCurrentOrNextOwner->m_Priority < task->m_Priority))
+         syncObject->m_HasOwnershipSemantic &&
+         IsOwnedSyncObject(syncObject) &&
+         (syncObject->m_pCurrentOrNextOwner->m_Priority < task->m_Priority))
   {
     // grant current owner our own priority
     syncObject->m_pCurrentOrNextOwner->m_Priority = task->m_Priority;
@@ -202,9 +249,9 @@ void UnqueueFromSyncObject(SyncObject* syncObject, Task* task)
   
   // do we have to check the owners priority, only needed for ownership semantic
   while (syncObject->m_HasOwnershipSemantic &&
-  IsOwnedSyncObject(syncObject) &&
-  (syncObject->m_pCurrentOrNextOwner->m_BasePriority < syncObject->m_pCurrentOrNextOwner->m_Priority) &&
-  (syncObject->m_pCurrentOrNextOwner->m_Priority == task->m_Priority))
+         IsOwnedSyncObject(syncObject) &&
+         (syncObject->m_pCurrentOrNextOwner->m_BasePriority < syncObject->m_pCurrentOrNextOwner->m_Priority) &&
+         (syncObject->m_pCurrentOrNextOwner->m_Priority == task->m_Priority))
   {
     Priority newPrio = syncObject->m_pCurrentOrNextOwner->m_BasePriority;
     
@@ -217,8 +264,8 @@ void UnqueueFromSyncObject(SyncObject* syncObject, Task* task)
     {
       // only consider sync objects with ownership, first in waiting list has highest priority
       if (syncObjectIter->m_HasOwnershipSemantic &&
-      (syncObjectIter->m_pWaitingList != NULL) &&
-      (syncObjectIter->m_pWaitingList->m_Priority > newPrio))
+          (syncObjectIter->m_pWaitingList != NULL) &&
+          (syncObjectIter->m_pWaitingList->m_Priority > newPrio))
       {
         newPrio = syncObjectIter->m_pWaitingList->m_Priority;
       }
@@ -230,7 +277,7 @@ void UnqueueFromSyncObject(SyncObject* syncObject, Task* task)
     
     // check if owner is currently waiting of another sync object so we can (recursively!) update his position in the waiting list and also update the owners priority
     if ((syncObject->m_pCurrentOrNextOwner->m_Priority != newPrio) &&
-    (syncObject->m_pCurrentOrNextOwner->m_pIsWaitingFor != NULL))
+        (syncObject->m_pCurrentOrNextOwner->m_pIsWaitingFor != NULL))
     {
       // set new priority
       syncObject->m_pCurrentOrNextOwner->m_Priority = newPrio;

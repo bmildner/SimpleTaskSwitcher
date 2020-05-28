@@ -10,6 +10,8 @@
 
 #include "SyncObject.h"
 
+// Recursive Mutex
+// Do not use in ISRs!
 typedef struct
 {
   SyncObject m_SyncObject;
