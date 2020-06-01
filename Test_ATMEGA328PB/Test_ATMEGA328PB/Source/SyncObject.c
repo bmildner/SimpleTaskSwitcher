@@ -46,8 +46,6 @@ static inline void AddTaskToSyncObjectsWaitingList(SyncObject* syncObject, Task*
 __attribute__((always_inline))
 static inline void RemoveTaskFromSyncObjectsWaitingList(SyncObject* syncObject, Task* task)
 {
-  SWITCHER_ASSERT(task->m_pWaitingListNext != NULL);
-  
   // remove task from waiting list
   if (syncObject->m_pWaitingList == task)
   {

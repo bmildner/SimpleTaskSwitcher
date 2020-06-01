@@ -126,6 +126,54 @@ enum {MaxNumberOfTasks = 0xff};
 typedef struct Task_       Task;
 typedef struct SyncObject_ SyncObject;
 
+// SyncObject is the common base for all synchronization objects (like (recursive) mutex, semaphore, event, ...).
+// A sync object has either ownership or notification/event semantic, depending on the needs of the synchronization object using it.
+// Common to all sync object is a waiting list and a flags field, other members depend on its semantic, ownership or notification.
+//
+// Possible states for ownership semantic:
+//    - Free:              not owned, no one waiting
+//                         (m_pCurrentOrNextOwner == NULL, m_pWaitingList == NULL, m_HasPendingNewOwner == false)
+//
+//    - Owned:             has current owner, there may or may not be someone waiting
+//                         (m_pCurrentOrNextOwner != NULL, m_pWaitingList != NULL or m_pWaitingList == NULL, m_HasPendingNewOwner == false)
+//
+//    - Pending new owner: has no current owner, there is someone waiting
+//                         (m_pCurrentOrNextOwner != NULL, m_pWaitingList != NULL, m_HasPendingNewOwner = true)
+//                         The previous owner has released the sync object and woken up the next owner according to the waiting list at the time.
+//                         Any task trying to acquire a sync object in this state has to queue up in the waiting list even if it has a higher priority
+//                         than anyone already waiting (incl. the task woken by the previous owner!).
+//
+typedef struct  SyncObject_  // all members require the task switcher to be paused
+{
+  Task* m_pWaitingList;  // waiting list head, waiting tasks are sorted by priority (highest first) and FIFO within a given priority
+                         // -> first task in waiting list is of the highest priority currently waiting and is the next to aquire
+  union
+  {
+    uint8_t m_Flags;  // storage of bitfield flags below
+    
+    struct
+    {
+      bool m_HasOwnershipSemantic : 1;  // set if sync object is used with ownership semantic, notification/event semantic otherwise
+      bool m_HasPendingNewOwner : 1;    // set if state is "Pending new Owner"
+    };
+  };
+  
+  union
+  {
+    struct  // members for ownership semantic
+    {
+      SyncObject* m_pAcquiredListNext;    // acquired list next pointer, next pointer for list of all currently acquired sync objects by current owner
+      Task*       m_pCurrentOrNextOwner;  // current or next owner task,
+    };
+    
+    struct  // members for notification/event semantic
+    {
+      uint16_t m_NotificationCounter;  // unused by SyncObject implementation, users may freely use
+      bool     m_PendingNotification;         // unused by SyncObject implementation, users may freely use
+    };
+  };
+} SyncObject;
+
 typedef struct Task_
 {
   void*    m_pStackPointer;          // points to the last saved byte on the stack, not the first free byte
@@ -137,12 +185,11 @@ typedef struct Task_
   Task*    m_pTaskListNext;          // task list next pointer, ring list, requires task switcher to be paused
   Task*    m_pWaitingListNext;       // waiting list next pointer, linear list, task waits for an synchronization object, requires task switcher to be paused
   
-  // TODO: do we really need to be able to Join tasks?!? either remove or change to use SyncObject!
-  Task*    m_pTaskWaitingList;       // pointer to task waiting list, other tasks waiting for this task to terminate, requires task switcher to be paused
-
   SyncObject* m_pAcquiredList;       // list of all currently acquired sync object by this task, requires task switcher to be paused
-  SyncObject* m_pIsWaitingFor;         // pointer to sync object the task is currently waiting for, requires task switcher to be paused
+  SyncObject* m_pIsWaitingFor;       // pointer to sync object the task is currently waiting for, requires task switcher to be paused
 
+  SyncObject m_JoinNotification;     // sync object used to implement join
+  
   Priority m_BasePriority;           // assigned base priority, requires task switcher to be paused
   Priority m_Priority;               // actual current priority, requires task switcher to be paused
 

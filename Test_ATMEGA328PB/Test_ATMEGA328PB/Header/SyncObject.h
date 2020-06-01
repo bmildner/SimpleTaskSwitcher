@@ -10,55 +10,10 @@
 
 #include "Switcher.h"
 
-
-// SyncObject is the common base for all synchronization objects (like (recursive) mutex, semaphore, event, ...).
-// A sync object has either ownership or notification/event semantic, depending on the needs of the synchronization object using it.
-// Common to all sync object is a waiting list and a flags field, other members depend on its semantic, ownership or notification.
-//
-// Possible states for ownership semantic:
-//    - Free:              not owned, no one waiting 
-//                         (m_pCurrentOrNextOwner == NULL, m_pWaitingList == NULL, m_HasPendingNewOwner == false)
-//
-//    - Owned:             has current owner, there may or may not be someone waiting
-//                         (m_pCurrentOrNextOwner != NULL, m_pWaitingList != NULL or m_pWaitingList == NULL, m_HasPendingNewOwner == false)
-//
-//    - Pending new owner: has no current owner, there is someone waiting 
-//                         (m_pCurrentOrNextOwner != NULL, m_pWaitingList != NULL, m_HasPendingNewOwner = true)
-//                         The previous owner has released the sync object and woken up the next owner according to the waiting list at the time.
-//                         Any task trying to acquire a sync object in this state has to queue up in the waiting list even if it has a higher priority
-//                         than anyone already waiting (incl. the task woken by the previous owner!).
-//
-typedef struct  SyncObject_  // all members require the task switcher to be paused
-{
-  Task* m_pWaitingList;  // waiting list head, waiting tasks are sorted by priority (highest first) and FIFO within a given priority
-                         // -> first task in waiting list is of the highest priority currently waiting and is the next to aquire
-  union
-  {
-    uint8_t m_Flags;  // storage of bitfield flags below
-    
-    struct    
-    {
-      bool m_HasOwnershipSemantic : 1;  // set if sync object is used with ownership semantic, notification/event semantic otherwise
-      bool m_HasPendingNewOwner : 1;    // set if state is "Pending new Owner"
-    };
-  };       
-  
-  union
-  {
-    struct  // members for ownership semantic
-    {
-      SyncObject* m_pAcquiredListNext;    // acquired list next pointer, next pointer for list of all currently acquired sync objects by current owner
-      Task*       m_pCurrentOrNextOwner;  // current or next owner task, 
-    };
-    
-    struct  // members for notification/event semantic 
-    {
-    };
-  };    
-} SyncObject;
+// SyncObject struct is in Switcher.h right above the Task struct!
 
 #define SWITCHER_SYNCOBJECT_WITH_OWNERSHIP_STATIC_INIT()    {.m_pWaitingList = NULL, .m_Flags = 0, .m_HasOwnershipSemantic = true,  .m_pAcquiredListNext = NULL, .m_pCurrentOrNextOwner = NULL}
-#define SWITCHER_SYNCOBJECT_WITH_NOTIFICATION_STATIC_INIT() {.m_pWaitingList = NULL, .m_Flags = 0, .m_HasOwnershipSemantic = false}
+#define SWITCHER_SYNCOBJECT_WITH_NOTIFICATION_STATIC_INIT() {.m_pWaitingList = NULL, .m_Flags = 0, .m_HasOwnershipSemantic = false, .m_NotificationCounter = 0, .m_PendingNotification = false}
 
 // expects: task switcher is currently paused
 //          sync object has ownership semantic

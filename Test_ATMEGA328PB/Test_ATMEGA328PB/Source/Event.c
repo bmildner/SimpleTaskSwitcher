@@ -21,9 +21,9 @@ SwitcherError WaitForEvent(Event* event, Timeout timeout)
 
   PauseSwitching();
 
-  if (event->m_PendingNotification)
+  if (event->m_SyncObject.m_PendingNotification)
   {
-    event->m_PendingNotification = false;
+    event->m_SyncObject.m_PendingNotification = false;
     
     ResumeSwitching();
     
@@ -76,7 +76,7 @@ SwitcherError EventNotifyOne(Event* event)
 
   if (event->m_SyncObject.m_pWaitingList == NULL)
   {
-    event->m_PendingNotification = true;    
+    event->m_SyncObject.m_PendingNotification = true;    
   }  
   else
   {
@@ -104,7 +104,7 @@ SwitcherError EventNotifyAll(Event* event)
 
   if (event->m_SyncObject.m_pWaitingList == NULL)
   {
-    event->m_PendingNotification = true;
+    event->m_SyncObject.m_PendingNotification = true;
   }
   else
   {

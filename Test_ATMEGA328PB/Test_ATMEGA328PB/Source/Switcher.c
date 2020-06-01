@@ -14,7 +14,7 @@
 #include <stddef.h>
 
 #include "SwitcherConfig.h"
-
+#include "SyncObject.h"
 
 #define SWITCHER_STACK_SIZE 32  // TODO: correctly size stack!!
 
@@ -428,7 +428,7 @@ SwitcherResult SwitcherCore(SwitchingSource source, void* stackPointer)
 
       Task* taskListIter = g_CurrentTask->m_pTaskListNext;
     
-      // find next task == find first next none sleeping task with the highest priority
+      // find next task == find none sleeping task with the highest priority
       do
       {
         SWITCHER_ASSERT(taskListIter != NULL);        
@@ -574,24 +574,9 @@ void TerminateTask()
   
   SWITCHER_ENABLE_INTERRUPTS();
  
-  // iterate over all tasks waiting for us to terminate
-  Task* waitingList = g_CurrentTask->m_pTaskWaitingList;
-  
-  while (waitingList != NULL)
-  {
-    SWITCHER_DISABLE_INTERRUPTS();
-    
-    if (waitingList->m_SleepCount > 0)
-    {
-      waitingList->m_SleepCount = 0;
-      g_ActiveTasks++;      
-    }
-    
-    SWITCHER_ENABLE_INTERRUPTS();
-    
-    waitingList = waitingList->m_pWaitingListNext;
-  }
-  
+  // notify all tasks waiting to join
+  SyncObjectNotifyAll(&g_CurrentTask->m_JoinNotification);
+   
   cli();
   
   TerminateTaskImpl();  // TODO: generates rcall, expected rjmp !?!?!?!?
@@ -857,9 +842,10 @@ SwitcherError AddTask(Task* task,
 #endif
 
   task->m_pWaitingListNext = NULL;
-  task->m_pTaskWaitingList = NULL;
   task->m_pAcquiredList = NULL;
   task->m_pIsWaitingFor = NULL;
+  SyncObject temp = SWITCHER_SYNCOBJECT_WITH_NOTIFICATION_STATIC_INIT();
+  task->m_JoinNotification = temp;
   task->m_SleepCount = 0;
   task->m_PauseSwitchingCounter = 0;
 
@@ -929,18 +915,21 @@ SwitcherError JoinTask(Task* task, Timeout timeout)
   if (IsKnownTask(task))
   {    
     // add us to the tasks waiting list
-    g_CurrentTask->m_pWaitingListNext = task->m_pTaskWaitingList;
-    task->m_pTaskWaitingList = g_CurrentTask;
+    QueueForSyncObject(&task->m_JoinNotification, g_CurrentTask);
     
     Sleep(timeout);
     
-    if (IsKnownTask(task))
+    if (g_CurrentTask->m_pIsWaitingFor == &task->m_JoinNotification)
     {
+      UnqueueFromSyncObject(&task->m_JoinNotification, g_CurrentTask);
+      
       ResumeSwitching();
       
       return SwitcherTimeout;
     }
   }
+  
+  SWITCHER_ASSERT(!IsKnownTask(task));
   
   ResumeSwitching();
   

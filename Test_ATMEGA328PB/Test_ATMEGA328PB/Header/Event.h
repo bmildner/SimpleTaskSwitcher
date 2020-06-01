@@ -13,7 +13,6 @@
 typedef struct
 {
   SyncObject m_SyncObject;
-  bool       m_PendingNotification;
 } Event;
 
 #define SWITCHER_EVENT_STATIC_INIT() {.m_SyncObject = SWITCHER_SYNCOBJECT_WITH_NOTIFICATION_STATIC_INIT(), .m_PendingNotification = false}
