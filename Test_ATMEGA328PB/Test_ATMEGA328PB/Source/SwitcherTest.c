@@ -9,6 +9,7 @@
 
 #include "SwitcherConfig.h"
 #include "Mutex.h"
+#include "Event.h"
 
 #define __STRINGIFY(x) #x
 #define TO_STRING(x) __STRINGIFY(x)
@@ -853,6 +854,170 @@ static void MutexTest()
   }  
 }
 
+// ********************** Event **********************
+
+Event g_Event = SWITCHER_EVENT_STATIC_INIT();
+
+static void EventTestTask(void* param)
+{
+  if (param != NULL)
+  {
+    while (true)
+    {
+      asm volatile ("break");
+    }    
+  }
+  
+  Sleep(1);
+  
+  if (EventNotifyOne(&g_Event) != SwitcherNoError)
+  {
+    while (true)
+    {
+      asm volatile ("break");
+    }
+  }
+  
+  Sleep(1);
+  
+  if (EventNotifyAll(&g_Event) != SwitcherNoError)
+  {
+    while (true)
+    {
+      asm volatile ("break");
+    }
+  }  
+  
+  Sleep(2);
+}
+
+static void EventTest()
+{
+  // ********* basic test *********
+  
+  // param checks
+  if (WaitForEvent(NULL, 0) != SwitcherInvalidParameter)
+  {
+    while (true)
+    {
+      asm volatile ("break");
+    }
+  }
+
+  if (EventNotifyOne(NULL) != SwitcherInvalidParameter)
+  {
+    while (true)
+    {
+      asm volatile ("break");
+    }
+  }
+  
+  if (EventNotifyAll(NULL) != SwitcherInvalidParameter)
+  {
+    while (true)
+    {
+      asm volatile ("break");
+    }
+  }
+
+  // no pending notification, non-blocking -> timeout
+  if (WaitForEvent(&g_Event, TimeoutNone) != SwitcherTimeout)
+  {
+    while (true)
+    {
+      asm volatile ("break");
+    }
+  }
+
+  // set pending notification using EventNotifyOne()
+  if (EventNotifyOne(&g_Event) != SwitcherNoError)
+  {
+    while (true)
+    {
+      asm volatile ("break");
+    }
+  }
+
+  // get pending notification non-blocking -> OK
+  if (WaitForEvent(&g_Event, TimeoutNone) != SwitcherNoError)
+  {
+    while (true)
+    {
+      asm volatile ("break");
+    }
+  }
+
+  // no pending notification, non-blocking -> timeout
+  if (WaitForEvent(&g_Event, TimeoutNone) != SwitcherTimeout)
+  {
+    while (true)
+    {
+      asm volatile ("break");
+    }
+  }
+  
+  // set pending notification using EventNotifyAll()
+  if (EventNotifyAll(&g_Event) != SwitcherNoError)
+  {
+    while (true)
+    {
+      asm volatile ("break");
+    }
+  }
+  
+  // get pending notification non-blocking -> OK
+  if (WaitForEvent(&g_Event, TimeoutNone) != SwitcherNoError)
+  {
+    while (true)
+    {
+      asm volatile ("break");
+    }
+  }
+
+  // no pending notification, non-blocking -> timeout
+  if (WaitForEvent(&g_Event, TimeoutNone) != SwitcherTimeout)
+  {
+    while (true)
+    {
+      asm volatile ("break");
+    }
+  }
+
+  // ********* test using another task *********
+  
+  if (AddTask(&g_TestTask, testStack, sizeof(testStack), &EventTestTask, NULL, PriorityNormal) != SwitcherNoError)  
+  {
+    while (true)
+    {
+      asm volatile ("break");
+    }
+  }
+  
+  if (WaitForEvent(&g_Event, 3) != SwitcherNoError)
+  {
+    while (true)
+    {
+      asm volatile ("break");
+    }
+  }
+
+  if (WaitForEvent(&g_Event, 3) != SwitcherNoError)
+  {
+    while (true)
+    {
+      asm volatile ("break");
+    }
+  }
+
+  if (JoinTask(&g_TestTask, 3) != SwitcherNoError)  
+  {
+    while (true)
+    {
+      asm volatile ("break");
+    }
+  }  
+}
+
 // ********************** SwitcherTestSuite **********************
 
 void SwitcherTestSuite()
@@ -871,4 +1036,6 @@ void SwitcherTestSuite()
   AddTaskTest();
   
   MutexTest();
+  
+  EventTest();
 }
