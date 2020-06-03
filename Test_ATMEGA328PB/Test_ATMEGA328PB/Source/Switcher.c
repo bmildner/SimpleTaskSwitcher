@@ -815,9 +815,9 @@ SwitcherError AddTask(Task* task,
   {
     return SwitcherTooManyTasks;
   }
-  
+
   InitialTaskState* pInitialTaskState = ((InitialTaskState*)((uint8_t*)stackBuffer) + ((stackSize - 1) - (sizeof(InitialTaskState) - 1)));
-    
+
   memset(pInitialTaskState, 0x00, sizeof(InitialTaskState));
   
   // we need to byte swap the return address!
@@ -832,22 +832,19 @@ SwitcherError AddTask(Task* task,
   pInitialTaskState->m_Registers[(sizeof(pInitialTaskState->m_Registers) - 1) - (11 + SWITCHER_RAMPZ_SIZE + SWITCHER_RAMPY_SIZE)] = (uint8_t)((uintptr_t)taskParameter);      // R22
   pInitialTaskState->m_Registers[(sizeof(pInitialTaskState->m_Registers) - 1) - (10 + SWITCHER_RAMPZ_SIZE + SWITCHER_RAMPY_SIZE)] = (uint8_t)((uintptr_t)taskParameter >> 8); // R23
   
+  memset(task, 0x00, sizeof(Task));
+  
   task->m_pStackPointer = pInitialTaskState;  // we always store the SP pointing to the last saved byte!
   task->m_BasePriority = priority;
   task->m_Priority = priority;
+
+  SyncObject temp = SWITCHER_SYNCOBJECT_WITH_NOTIFICATION_STATIC_INIT();
+  task->m_JoinNotification = temp;
   
 #if 0  // for stack check only 
   task->m_StackBuffer = stackBuffer;
   task->m_StackSize = stackSize;
 #endif
-
-  task->m_pWaitingListNext = NULL;
-  task->m_pAcquiredList = NULL;
-  task->m_pIsWaitingFor = NULL;
-  SyncObject temp = SWITCHER_SYNCOBJECT_WITH_NOTIFICATION_STATIC_INIT();
-  task->m_JoinNotification = temp;
-  task->m_SleepCount = 0;
-  task->m_PauseSwitchingCounter = 0;
 
   PauseSwitching();
   

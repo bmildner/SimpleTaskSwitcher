@@ -161,10 +161,13 @@ void ReleaseSyncObject(SyncObject* syncObject, Task* task)
 // expects: task switcher is currently paused
 //          sync object has notification semantic
 //          there is at least one task waiting
+//
+// returns: true if notified task was woken and has higher priority
 __attribute__((always_inline))
-static inline void SyncObjectNotifyOneImpl(SyncObject* syncObject)
+static inline bool SyncObjectNotifyOneImpl(SyncObject* syncObject)
 {
   Task* task = syncObject->m_pWaitingList;
+  bool yield = false;
   
   RemoveTaskFromSyncObjectsWaitingList(syncObject, task);
   
@@ -175,9 +178,16 @@ static inline void SyncObjectNotifyOneImpl(SyncObject* syncObject)
   {
     task->m_SleepCount = 0;
     g_ActiveTasks++;
+    
+    if (task->m_Priority > g_CurrentTask->m_Priority)
+    {
+      yield = true;
+    }
   }
   
   SWITCHER_ENABLE_INTERRUPTS();
+  
+  return yield;
 }
 
 void SyncObjectNotifyOne(SyncObject* syncObject)
@@ -186,7 +196,10 @@ void SyncObjectNotifyOne(SyncObject* syncObject)
   SWITCHER_ASSERT(!syncObject->m_HasOwnershipSemantic);
   SWITCHER_ASSERT(syncObject->m_pWaitingList != NULL);
 
-  SyncObjectNotifyOneImpl(syncObject);  
+  if (SyncObjectNotifyOneImpl(syncObject))
+  {
+    Yield();
+  }
 }
 
 void SyncObjectNotifyAll(SyncObject* syncObject)
@@ -194,13 +207,23 @@ void SyncObjectNotifyAll(SyncObject* syncObject)
   SWITCHER_ASSERT(syncObject != NULL);
   SWITCHER_ASSERT(!syncObject->m_HasOwnershipSemantic);
   SWITCHER_ASSERT(syncObject->m_pWaitingList != NULL);
-
+  
+  bool yield = false;
+  
   do 
   {
-    SyncObjectNotifyOneImpl(syncObject);
+    if (SyncObjectNotifyOneImpl(syncObject))
+    {
+      yield = true;
+    }
   } while (syncObject->m_pWaitingList != NULL);
   
   SWITCHER_ASSERT(syncObject->m_pWaitingList == NULL);
+  
+  if (yield)
+  {
+    Yield();
+  }
 }
 
 
