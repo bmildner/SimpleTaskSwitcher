@@ -418,7 +418,7 @@ SwitcherResult SwitcherCore(SwitchingSource source, void* stackPointer)
     }
     else  // source is either Yielded or PreemptiveSwitch or ForcedSwitch or TerminatingTask
     {
-      // reset counter timer for preemptive task switches to start a new CPU slice
+      // reset timer for preemptive task switches to start a new CPU slice
       ResetPreemptiveSwitchTimer();
       
       if (nextTask == NULL)
