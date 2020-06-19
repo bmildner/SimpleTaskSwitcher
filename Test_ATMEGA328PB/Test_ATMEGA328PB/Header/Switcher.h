@@ -169,7 +169,7 @@ typedef struct  SyncObject_  // all members require the task switcher to be paus
     struct  // members for notification/event semantic
     {
       uint16_t m_NotificationCounter;  // unused by SyncObject implementation, users may freely use
-      bool     m_PendingNotification;         // unused by SyncObject implementation, users may freely use
+      bool     m_PendingNotification;  // unused by SyncObject implementation, users may freely use
     };
   };
 } SyncObject;
